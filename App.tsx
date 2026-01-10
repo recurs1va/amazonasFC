@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from './supabaseClient';
 import { 
@@ -126,20 +127,22 @@ const App: React.FC = () => {
     try {
       setLoading(true);
       // 1. Insert customer
-      const { data: cData, error: cErr } = await supabase.from('customers').insert([customer]).select().single();
-      if (cErr) throw cErr;
+      // Fix: Cast to any to bypass inference errors when generic 'Database' type fails to map correctly
+      const { data: cData, error: cErr } = await (supabase.from('customers') as any).insert([customer]).select().single();
+      if (cErr || !cData) throw cErr || new Error('Falha ao criar cliente');
 
       const orderIdString = `PED-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
       // 2. Create Order
-      const { data: oData, error: oErr } = await supabase.from('orders').insert([{
+      // Fix: Cast to any and ensure non-null data to resolve inference and nullability errors
+      const { data: oData, error: oErr } = await (supabase.from('orders') as any).insert([{
         order_id: orderIdString,
         customer_id: cData.id,
         event_id: event.id,
         total: getTotal(),
         payment_method: method
       }]).select().single();
-      if (oErr) throw oErr;
+      if (oErr || !oData) throw oErr || new Error('Falha ao criar pedido');
 
       // 3. Create Items
       const items = Object.entries(cart).map(([id, qty]) => {
@@ -153,10 +156,12 @@ const App: React.FC = () => {
         };
       });
 
-      const { error: itemsErr } = await supabase.from('order_items').insert(items);
+      // Fix: Cast to any to bypass 'never' parameter type error
+      const { error: itemsErr } = await (supabase.from('order_items') as any).insert(items);
       if (itemsErr) throw itemsErr;
 
       // Local state update
+      // Fix: oData and cData are narrowed to non-null by previous checks
       const fullOrder: Order = {
         ...oData,
         customers: cData,
@@ -608,11 +613,13 @@ const App: React.FC = () => {
                             <button onClick={() => setEditingEvent(null)} className="flex-1 bg-slate-100 py-3 rounded-xl font-bold">Cancelar</button>
                             <button 
                               onClick={() => handleAdminAction(async () => {
+                                // Fix: Add null check and cast table builder to any to avoid generic inference errors
+                                if (!editingEvent) return;
                                 if (editingEvent.id === 0) {
                                   const { id, ...data } = editingEvent;
-                                  await supabase.from('events').insert([data]);
+                                  await (supabase.from('events') as any).insert([data]);
                                 } else {
-                                  await supabase.from('events').update(editingEvent).eq('id', editingEvent.id);
+                                  await (supabase.from('events') as any).update(editingEvent).eq('id', editingEvent.id);
                                 }
                                 setEditingEvent(null);
                               })}
@@ -672,11 +679,13 @@ const App: React.FC = () => {
                             <button onClick={() => setEditingTicket(null)} className="flex-1 bg-slate-100 py-3 rounded-xl font-bold">Cancelar</button>
                             <button 
                               onClick={() => handleAdminAction(async () => {
+                                // Fix: Add null check and cast table builder to any to avoid generic inference errors
+                                if (!editingTicket) return;
                                 if (editingTicket.id === 0) {
                                   const { id, ...data } = editingTicket;
-                                  await supabase.from('tickets').insert([data]);
+                                  await (supabase.from('tickets') as any).insert([data]);
                                 } else {
-                                  await supabase.from('tickets').update(editingTicket).eq('id', editingTicket.id);
+                                  await (supabase.from('tickets') as any).update(editingTicket).eq('id', editingTicket.id);
                                 }
                                 setEditingTicket(null);
                               })}

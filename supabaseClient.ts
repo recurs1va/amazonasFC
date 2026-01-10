@@ -2,17 +2,29 @@
 import { createClient } from '@supabase/supabase-js';
 import { Database } from './types';
 
-/**
- * Para aplicações Vite/Vercel, usamos import.meta.env ou process.env.
- * Aqui buscamos primeiro de import.meta.env (Vite) e depois de process.env (outros builders).
- */
-const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || (process.env as any).VITE_SUPABASE_URL || '';
-const SUPABASE_KEY = (import.meta as any).env?.VITE_SUPABASE_KEY || (process.env as any).VITE_SUPABASE_KEY || '';
+// Função auxiliar para buscar variáveis de ambiente de forma segura em diferentes ambientes (Vite, Webpack, Node)
+const getEnv = (name: string): string => {
+  try {
+    // Tenta Vite
+    const viteEnv = (import.meta as any).env?.[name];
+    if (viteEnv) return viteEnv;
+    
+    // Tenta process.env (Vercel/Node)
+    const procEnv = (globalThis as any).process?.env?.[name];
+    if (procEnv) return procEnv;
+  } catch (e) {
+    // Silencioso
+  }
+  return '';
+};
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  console.warn(
-    "Supabase: URL ou Key não encontradas. Certifique-se de configurar as variáveis de ambiente VITE_SUPABASE_URL e VITE_SUPABASE_KEY."
-  );
-}
+const SUPABASE_URL = getEnv('VITE_SUPABASE_URL');
+const SUPABASE_KEY = getEnv('VITE_SUPABASE_KEY');
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_KEY);
+export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_KEY);
+
+// Se não configurado, usamos URLs de placeholder para evitar crash na inicialização
+export const supabase = createClient<Database>(
+  SUPABASE_URL || 'https://placeholder.supabase.co',
+  SUPABASE_KEY || 'placeholder'
+);

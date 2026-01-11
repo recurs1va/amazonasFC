@@ -21,7 +21,8 @@ import {
   Trash2,
   Edit,
   Plus,
-  AlertCircle
+  AlertCircle,
+  X
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -68,6 +69,12 @@ const App: React.FC = () => {
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
+  
+  // Estados para modais de criação/edição
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [showTicketModal, setShowTicketModal] = useState(false);
+  const [eventForm, setEventForm] = useState<Partial<Event>>({ name: '', date: '', location: '', description: '' });
+  const [ticketForm, setTicketForm] = useState<Partial<Ticket>>({ event_id: 0, name: '', price: 0, desc: '' });
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -98,6 +105,176 @@ const App: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Funções para gerenciar EVENTOS
+  const openEventModal = (event?: Event) => {
+    if (event) {
+      setEditingEvent(event);
+      setEventForm({ name: event.name, date: event.date, location: event.location, description: event.description || '' });
+    } else {
+      setEditingEvent(null);
+      setEventForm({ name: '', date: '', location: '', description: '' });
+    }
+    setShowEventModal(true);
+  };
+
+  const saveEvent = async () => {
+    if (!eventForm.name || !eventForm.date || !eventForm.location) {
+      alert('Preencha todos os campos obrigatórios');
+      return;
+    }
+
+    if (isSupabaseConfigured) {
+      try {
+        setLoading(true);
+        if (editingEvent) {
+          await supabase.from('events').update({
+            name: eventForm.name,
+            date: eventForm.date,
+            location: eventForm.location,
+            description: eventForm.description
+          }).eq('id', editingEvent.id);
+        } else {
+          await supabase.from('events').insert([{
+            name: eventForm.name,
+            date: eventForm.date,
+            location: eventForm.location,
+            description: eventForm.description
+          }]);
+        }
+        await loadData();
+        setSuccessMsg(editingEvent ? 'Evento atualizado!' : 'Evento criado!');
+        setTimeout(() => setSuccessMsg(''), 3000);
+      } catch (error) {
+        console.error('Erro ao salvar evento:', error);
+        alert('Erro ao salvar evento');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // Modo demonstração
+      if (editingEvent) {
+        setEvents(events.map(ev => ev.id === editingEvent.id ? { ...ev, ...eventForm } as Event : ev));
+      } else {
+        const newId = Math.max(...events.map(e => e.id), 0) + 1;
+        setEvents([...events, { id: newId, ...eventForm } as Event]);
+      }
+      setSuccessMsg(editingEvent ? 'Evento atualizado!' : 'Evento criado!');
+      setTimeout(() => setSuccessMsg(''), 3000);
+    }
+    setShowEventModal(false);
+  };
+
+  const deleteEvent = async (eventId: number) => {
+    if (!confirm('Tem certeza que deseja excluir este evento?')) return;
+
+    if (isSupabaseConfigured) {
+      try {
+        setLoading(true);
+        // Primeiro excluir os ingressos do evento
+        await supabase.from('tickets').delete().eq('event_id', eventId);
+        // Depois excluir o evento
+        await supabase.from('events').delete().eq('id', eventId);
+        await loadData();
+        setSuccessMsg('Evento excluído!');
+        setTimeout(() => setSuccessMsg(''), 3000);
+      } catch (error) {
+        console.error('Erro ao excluir evento:', error);
+        alert('Erro ao excluir evento');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // Modo demonstração
+      setEvents(events.filter(ev => ev.id !== eventId));
+      setTickets(tickets.filter(t => t.event_id !== eventId));
+      setSuccessMsg('Evento excluído!');
+      setTimeout(() => setSuccessMsg(''), 3000);
+    }
+  };
+
+  // Funções para gerenciar INGRESSOS
+  const openTicketModal = (ticket?: Ticket) => {
+    if (ticket) {
+      setEditingTicket(ticket);
+      setTicketForm({ event_id: ticket.event_id, name: ticket.name, price: ticket.price, desc: ticket.desc || '' });
+    } else {
+      setEditingTicket(null);
+      setTicketForm({ event_id: events[0]?.id || 0, name: '', price: 0, desc: '' });
+    }
+    setShowTicketModal(true);
+  };
+
+  const saveTicket = async () => {
+    if (!ticketForm.name || !ticketForm.event_id || ticketForm.price === undefined) {
+      alert('Preencha todos os campos obrigatórios');
+      return;
+    }
+
+    if (isSupabaseConfigured) {
+      try {
+        setLoading(true);
+        if (editingTicket) {
+          await supabase.from('tickets').update({
+            event_id: ticketForm.event_id,
+            name: ticketForm.name,
+            price: ticketForm.price,
+            desc: ticketForm.desc
+          }).eq('id', editingTicket.id);
+        } else {
+          await supabase.from('tickets').insert([{
+            event_id: ticketForm.event_id,
+            name: ticketForm.name,
+            price: ticketForm.price,
+            desc: ticketForm.desc
+          }]);
+        }
+        await loadData();
+        setSuccessMsg(editingTicket ? 'Ingresso atualizado!' : 'Ingresso criado!');
+        setTimeout(() => setSuccessMsg(''), 3000);
+      } catch (error) {
+        console.error('Erro ao salvar ingresso:', error);
+        alert('Erro ao salvar ingresso');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // Modo demonstração
+      if (editingTicket) {
+        setTickets(tickets.map(t => t.id === editingTicket.id ? { ...t, ...ticketForm } as Ticket : t));
+      } else {
+        const newId = Math.max(...tickets.map(t => t.id), 0) + 1;
+        setTickets([...tickets, { id: newId, ...ticketForm } as Ticket]);
+      }
+      setSuccessMsg(editingTicket ? 'Ingresso atualizado!' : 'Ingresso criado!');
+      setTimeout(() => setSuccessMsg(''), 3000);
+    }
+    setShowTicketModal(false);
+  };
+
+  const deleteTicket = async (ticketId: number) => {
+    if (!confirm('Tem certeza que deseja excluir este ingresso?')) return;
+
+    if (isSupabaseConfigured) {
+      try {
+        setLoading(true);
+        await supabase.from('tickets').delete().eq('id', ticketId);
+        await loadData();
+        setSuccessMsg('Ingresso excluído!');
+        setTimeout(() => setSuccessMsg(''), 3000);
+      } catch (error) {
+        console.error('Erro ao excluir ingresso:', error);
+        alert('Erro ao excluir ingresso');
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      // Modo demonstração
+      setTickets(tickets.filter(t => t.id !== ticketId));
+      setSuccessMsg('Ingresso excluído!');
+      setTimeout(() => setSuccessMsg(''), 3000);
+    }
+  };
 
   const handleLogin = () => {
     if (email === 'admin@admin.com' && password === 'admin') {
@@ -181,7 +358,7 @@ const App: React.FC = () => {
         <div className="min-h-screen bg-indigo-600 flex items-center justify-center p-4">
           <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md">
             <h1 className="text-3xl font-bold text-center mb-8 flex items-center justify-center gap-2 text-indigo-600">
-              <TicketIcon size={32} /> TicketMaster
+              <TicketIcon size={32} /> Ingresso Amazonas
             </h1>
             <div className="space-y-4">
               <input
@@ -360,7 +537,7 @@ const App: React.FC = () => {
                   <button 
                     key={t} onClick={() => setAdminTab(t as any)} 
                     className={`w-full text-left px-4 py-2 rounded-lg font-bold capitalize ${adminTab === t ? 'bg-indigo-600 text-white' : 'hover:bg-slate-200'}`}
-                  > {t} </button>
+                  > {t === 'events' ? 'Eventos' : t === 'tickets' ? 'Ingressos' : 'Relatórios'} </button>
                 ))}
              </div>
              <div className="flex-1 bg-white rounded-2xl border p-8 shadow-sm">
@@ -368,15 +545,45 @@ const App: React.FC = () => {
                   <div>
                     <div className="flex justify-between items-center mb-6">
                       <h2 className="text-xl font-bold">Gerenciar Eventos</h2>
-                      <button className="bg-indigo-600 text-white p-2 rounded-full"><Plus size={20} /></button>
+                      <button onClick={() => openEventModal()} className="bg-indigo-600 text-white p-2 rounded-full hover:bg-indigo-700 transition"><Plus size={20} /></button>
                     </div>
                     <div className="space-y-3">
                       {events.map(ev => (
-                        <div key={ev.id} className="p-4 border rounded-xl flex justify-between items-center">
-                          <div><p className="font-bold">{ev.name}</p><p className="text-xs text-slate-500">{ev.date}</p></div>
-                          <div className="flex gap-2"><button className="p-2 text-indigo-600"><Edit size={16} /></button><button className="p-2 text-red-600"><Trash2 size={16} /></button></div>
+                        <div key={ev.id} className="p-4 border rounded-xl flex justify-between items-center hover:bg-slate-50 transition">
+                          <div><p className="font-bold">{ev.name}</p><p className="text-xs text-slate-500">{ev.date} • {ev.location}</p></div>
+                          <div className="flex gap-2">
+                            <button onClick={() => openEventModal(ev)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"><Edit size={16} /></button>
+                            <button onClick={() => deleteEvent(ev.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"><Trash2 size={16} /></button>
+                          </div>
                         </div>
                       ))}
+                      {events.length === 0 && <p className="text-slate-400 text-center py-8">Nenhum evento cadastrado</p>}
+                    </div>
+                  </div>
+                )}
+                {adminTab === 'tickets' && (
+                  <div>
+                    <div className="flex justify-between items-center mb-6">
+                      <h2 className="text-xl font-bold">Gerenciar Ingressos</h2>
+                      <button onClick={() => openTicketModal()} className="bg-indigo-600 text-white p-2 rounded-full hover:bg-indigo-700 transition"><Plus size={20} /></button>
+                    </div>
+                    <div className="space-y-3">
+                      {tickets.map(t => {
+                        const event = events.find(e => e.id === t.event_id);
+                        return (
+                          <div key={t.id} className="p-4 border rounded-xl flex justify-between items-center hover:bg-slate-50 transition">
+                            <div>
+                              <p className="font-bold">{t.name}</p>
+                              <p className="text-xs text-slate-500">{event?.name || 'Evento não encontrado'} • R$ {t.price.toFixed(2)}</p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => openTicketModal(t)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"><Edit size={16} /></button>
+                              <button onClick={() => deleteTicket(t.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"><Trash2 size={16} /></button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {tickets.length === 0 && <p className="text-slate-400 text-center py-8">Nenhum ingresso cadastrado</p>}
                     </div>
                   </div>
                 )}
@@ -394,6 +601,127 @@ const App: React.FC = () => {
                 )}
              </div>
           </div>
+
+          {/* Modal de Evento */}
+          {showEventModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-bold">{editingEvent ? 'Editar Evento' : 'Novo Evento'}</h3>
+                  <button onClick={() => setShowEventModal(false)} className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Nome do Evento *</label>
+                    <input 
+                      type="text" 
+                      className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" 
+                      value={eventForm.name || ''} 
+                      onChange={e => setEventForm({...eventForm, name: e.target.value})}
+                      placeholder="Ex: Festival de Verão 2025"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Data *</label>
+                    <input 
+                      type="text" 
+                      className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" 
+                      value={eventForm.date || ''} 
+                      onChange={e => setEventForm({...eventForm, date: e.target.value})}
+                      placeholder="Ex: 15/12/2025"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Local *</label>
+                    <input 
+                      type="text" 
+                      className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" 
+                      value={eventForm.location || ''} 
+                      onChange={e => setEventForm({...eventForm, location: e.target.value})}
+                      placeholder="Ex: Arena Principal"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Descrição</label>
+                    <textarea 
+                      className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none resize-none" 
+                      rows={3}
+                      value={eventForm.description || ''} 
+                      onChange={e => setEventForm({...eventForm, description: e.target.value})}
+                      placeholder="Descrição do evento..."
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <button onClick={() => setShowEventModal(false)} className="flex-1 py-3 border rounded-xl font-bold hover:bg-slate-50 transition">Cancelar</button>
+                    <button onClick={saveEvent} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition">Salvar</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal de Ingresso */}
+          {showTicketModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-bold">{editingTicket ? 'Editar Ingresso' : 'Novo Ingresso'}</h3>
+                  <button onClick={() => setShowTicketModal(false)} className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Evento *</label>
+                    <select 
+                      className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none bg-white" 
+                      value={ticketForm.event_id || ''} 
+                      onChange={e => setTicketForm({...ticketForm, event_id: parseInt(e.target.value)})}
+                    >
+                      <option value="">Selecione um evento</option>
+                      {events.map(ev => (
+                        <option key={ev.id} value={ev.id}>{ev.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Nome do Ingresso *</label>
+                    <input 
+                      type="text" 
+                      className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" 
+                      value={ticketForm.name || ''} 
+                      onChange={e => setTicketForm({...ticketForm, name: e.target.value})}
+                      placeholder="Ex: VIP, Pista, Camarote"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Preço (R$) *</label>
+                    <input 
+                      type="number" 
+                      step="0.01"
+                      min="0"
+                      className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" 
+                      value={ticketForm.price || ''} 
+                      onChange={e => setTicketForm({...ticketForm, price: parseFloat(e.target.value) || 0})}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Descrição</label>
+                    <textarea 
+                      className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none resize-none" 
+                      rows={3}
+                      value={ticketForm.desc || ''} 
+                      onChange={e => setTicketForm({...ticketForm, desc: e.target.value})}
+                      placeholder="Descrição do ingresso..."
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <button onClick={() => setShowTicketModal(false)} className="flex-1 py-3 border rounded-xl font-bold hover:bg-slate-50 transition">Cancelar</button>
+                    <button onClick={saveTicket} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition">Salvar</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

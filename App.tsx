@@ -76,6 +76,10 @@ const App: React.FC = () => {
   const [eventForm, setEventForm] = useState<Partial<Event>>({ name: '', date: '', location: '', description: '' });
   const [ticketForm, setTicketForm] = useState<Partial<Ticket>>({ event_id: 0, name: '', price: 0, desc: '' });
 
+  // Estados para filtros de relatório
+  const [reportFilterEvent, setReportFilterEvent] = useState<number | 'all'>('all');
+  const [reportFilterTicket, setReportFilterTicket] = useState<string | 'all'>('all');
+
   const loadData = useCallback(async () => {
     setLoading(true);
     if (!isSupabaseConfigured) {
@@ -587,18 +591,168 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 )}
-                {adminTab === 'reports' && (
-                  <div className="grid grid-cols-3 gap-6">
-                    <div className="p-6 bg-green-50 rounded-2xl border border-green-100">
-                      <p className="text-xs font-bold text-green-600 uppercase">Receita Total</p>
-                      <h4 className="text-2xl font-black">R$ {orders.reduce((s,o) => s+o.total, 0).toFixed(2)}</h4>
+                {adminTab === 'reports' && (() => {
+                  // Filtrar pedidos por evento
+                  const filteredOrders = reportFilterEvent === 'all' 
+                    ? orders 
+                    : orders.filter(o => o.event_id === reportFilterEvent);
+
+                  // Calcular métricas considerando filtros
+                  const totalRevenue = filteredOrders.reduce((sum, o) => sum + o.total, 0);
+                  const totalOrders = filteredOrders.length;
+
+                  // Calcular quantidade de ingressos vendidos
+                  let totalTicketsSold = 0;
+                  const ticketBreakdown: Record<string, { quantity: number; revenue: number }> = {};
+
+                  filteredOrders.forEach(order => {
+                    order.order_items?.forEach(item => {
+                      // Aplicar filtro de tipo de ingresso
+                      if (reportFilterTicket === 'all' || item.ticket_name === reportFilterTicket) {
+                        totalTicketsSold += item.quantity;
+                        if (!ticketBreakdown[item.ticket_name]) {
+                          ticketBreakdown[item.ticket_name] = { quantity: 0, revenue: 0 };
+                        }
+                        ticketBreakdown[item.ticket_name].quantity += item.quantity;
+                        ticketBreakdown[item.ticket_name].revenue += item.quantity * item.unit_price;
+                      }
+                    });
+                  });
+
+                  // Calcular receita filtrada por tipo de ingresso
+                  const filteredRevenue = reportFilterTicket === 'all' 
+                    ? totalRevenue 
+                    : Object.values(ticketBreakdown).reduce((sum, t) => sum + t.revenue, 0);
+
+                  // Obter tipos únicos de ingressos para o filtro
+                  const uniqueTicketTypes = [...new Set(
+                    orders.flatMap(o => o.order_items?.map(i => i.ticket_name) || [])
+                  )];
+
+                  return (
+                    <div>
+                      <h2 className="text-xl font-bold mb-6">Relatórios de Vendas</h2>
+                      
+                      {/* Filtros */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-slate-50 rounded-xl">
+                        <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2">Filtrar por Evento</label>
+                          <select 
+                            className="w-full p-3 border rounded-xl bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                            value={reportFilterEvent}
+                            onChange={e => setReportFilterEvent(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
+                          >
+                            <option value="all">Todos os eventos</option>
+                            {events.map(ev => (
+                              <option key={ev.id} value={ev.id}>{ev.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-bold text-slate-700 mb-2">Filtrar por Tipo de Ingresso</label>
+                          <select 
+                            className="w-full p-3 border rounded-xl bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                            value={reportFilterTicket}
+                            onChange={e => setReportFilterTicket(e.target.value)}
+                          >
+                            <option value="all">Todos os tipos</option>
+                            {uniqueTicketTypes.map(type => (
+                              <option key={type} value={type}>{type}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Cards de métricas */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        <div className="p-6 bg-green-50 rounded-2xl border border-green-100">
+                          <p className="text-xs font-bold text-green-600 uppercase">Receita Total</p>
+                          <h4 className="text-2xl font-black">R$ {filteredRevenue.toFixed(2)}</h4>
+                        </div>
+                        <div className="p-6 bg-indigo-50 rounded-2xl border border-indigo-100">
+                          <p className="text-xs font-bold text-indigo-600 uppercase">Pedidos</p>
+                          <h4 className="text-2xl font-black">{totalOrders}</h4>
+                        </div>
+                        <div className="p-6 bg-amber-50 rounded-2xl border border-amber-100">
+                          <p className="text-xs font-bold text-amber-600 uppercase">Ingressos Vendidos</p>
+                          <h4 className="text-2xl font-black">{totalTicketsSold}</h4>
+                        </div>
+                      </div>
+
+                      {/* Detalhamento por tipo de ingresso */}
+                      {Object.keys(ticketBreakdown).length > 0 && (
+                        <div>
+                          <h3 className="text-lg font-bold mb-4">Detalhamento por Tipo de Ingresso</h3>
+                          <div className="border rounded-xl overflow-hidden">
+                            <table className="w-full">
+                              <thead className="bg-slate-50">
+                                <tr>
+                                  <th className="text-left p-4 text-sm font-bold text-slate-600">Tipo</th>
+                                  <th className="text-right p-4 text-sm font-bold text-slate-600">Quantidade</th>
+                                  <th className="text-right p-4 text-sm font-bold text-slate-600">Receita</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {Object.entries(ticketBreakdown).map(([name, data]) => (
+                                  <tr key={name} className="border-t hover:bg-slate-50">
+                                    <td className="p-4 font-medium">{name}</td>
+                                    <td className="p-4 text-right">{data.quantity}</td>
+                                    <td className="p-4 text-right font-bold text-green-600">R$ {data.revenue.toFixed(2)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot className="bg-slate-100 font-bold">
+                                <tr className="border-t">
+                                  <td className="p-4">Total</td>
+                                  <td className="p-4 text-right">{totalTicketsSold}</td>
+                                  <td className="p-4 text-right text-green-600">R$ {filteredRevenue.toFixed(2)}</td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Histórico de pedidos */}
+                      {filteredOrders.length > 0 && (
+                        <div className="mt-8">
+                          <h3 className="text-lg font-bold mb-4">Histórico de Pedidos</h3>
+                          <div className="space-y-3">
+                            {filteredOrders.slice(0, 10).map(order => (
+                              <div key={order.order_id} className="p-4 border rounded-xl hover:bg-slate-50 transition">
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <p className="font-bold text-indigo-600">{order.order_id}</p>
+                                    <p className="text-sm text-slate-500">{order.events?.name}</p>
+                                    <p className="text-xs text-slate-400">{order.customers?.name} • {order.payment_method}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="font-bold text-green-600">R$ {order.total.toFixed(2)}</p>
+                                    <p className="text-xs text-slate-400">
+                                      {order.order_items?.reduce((sum, i) => sum + i.quantity, 0)} ingresso(s)
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            {filteredOrders.length > 10 && (
+                              <p className="text-center text-slate-400 text-sm py-2">
+                                Mostrando 10 de {filteredOrders.length} pedidos
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {filteredOrders.length === 0 && (
+                        <div className="text-center py-12 text-slate-400">
+                          <TrendingUp size={48} className="mx-auto mb-4 opacity-50" />
+                          <p>Nenhuma venda encontrada com os filtros selecionados</p>
+                        </div>
+                      )}
                     </div>
-                    <div className="p-6 bg-indigo-50 rounded-2xl border border-indigo-100">
-                      <p className="text-xs font-bold text-indigo-600 uppercase">Vendas</p>
-                      <h4 className="text-2xl font-black">{orders.length}</h4>
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
              </div>
           </div>
 

@@ -397,9 +397,21 @@ const App: React.FC = () => {
     }, 0);
 
     const orderIdString = `PED-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-    const orderItems: OrderItem[] = Object.entries(cart).map(([id, qty]) => {
+    
+    // Gerar itens do pedido com códigos de ingresso únicos
+    const orderItems: OrderItem[] = [];
+    let itemIndex = 0;
+    Object.entries(cart).forEach(([id, qty]) => {
       const t = tickets.find(x => x.id === parseInt(id))!;
-      return { ticket_id: t.id, ticket_name: t.name, quantity: qty, unit_price: t.price };
+      for (let i = 0; i < qty; i++) {
+        orderItems.push({ 
+          ticket_id: t.id, 
+          ticket_name: t.name, 
+          quantity: 1, 
+          unit_price: t.price 
+        });
+        itemIndex++;
+      }
     });
 
     const newOrder: Order = {
@@ -518,19 +530,34 @@ const App: React.FC = () => {
       return;
     }
     
-    // Buscar pedido correspondente
-    const relatedOrder = orders.find(o => {
-      if (o.event_id !== validateEventId) return false;
-      // Verificar se existe um item com índice correspondente
-      return o.order_items && o.order_items.length > parsed.index;
-    });
+    // VALIDAÇÃO CRÍTICA: Verificar se o código completo (incluindo hash) realmente existe
+    // Buscar em todos os pedidos do evento e regenerar os códigos para comparação
+    let foundTicket: { order: Order; itemIndex: number; item: OrderItem } | null = null;
     
-    if (!relatedOrder) {
-      setValidationResult({ valid: false, message: 'Ingresso não encontrado no sistema' });
+    for (const order of orders.filter(o => o.event_id === validateEventId)) {
+      if (!order.order_items) continue;
+      
+      for (let idx = 0; idx < order.order_items.length; idx++) {
+        const item = order.order_items[idx];
+        // Regenerar o código que foi gerado para este item específico
+        const expectedCode = generateTicketCode(order.order_id, order.event_id, item.ticket_id, idx);
+        
+        if (expectedCode === ticketCodeInput.trim()) {
+          foundTicket = { order, itemIndex: idx, item };
+          break;
+        }
+      }
+      
+      if (foundTicket) break;
+    }
+    
+    if (!foundTicket) {
+      setValidationResult({ valid: false, message: 'Código de ingresso inválido ou não encontrado' });
       return;
     }
     
-    const ticketItem = relatedOrder.order_items![parsed.index];
+    const relatedOrder = foundTicket.order;
+    const ticketItem = foundTicket.item;
     
     // Validar com sucesso
     const validatedTicket: ValidatedTicket = {

@@ -52,13 +52,13 @@ export interface Database {
     Tables: {
       events: {
         Row: Event;
-        Insert: Omit<Event, 'id'>;
-        Update: Partial<Omit<Event, 'id'>>;
+        Insert: Omit<Event, 'id' | 'created_at'>;
+        Update: Partial<Omit<Event, 'id' | 'created_at'>>;
       };
       tickets: {
         Row: Ticket;
-        Insert: Omit<Ticket, 'id'>;
-        Update: Partial<Omit<Ticket, 'id'>>;
+        Insert: Omit<Ticket, 'id' | 'created_at'>;
+        Update: Partial<Omit<Ticket, 'id' | 'created_at'>>;
       };
       customers: {
         Row: Customer;
@@ -67,16 +67,32 @@ export interface Database {
       };
       orders: {
         Row: Order;
-        Insert: Omit<Order, 'id'>;
-        Update: Partial<Omit<Order, 'id'>>;
+        Insert: Omit<Order, 'id' | 'created_at'>;
+        Update: Partial<Omit<Order, 'id' | 'created_at'>>;
       };
       order_items: {
         Row: OrderItem;
         Insert: Omit<OrderItem, 'id'>;
         Update: Partial<Omit<OrderItem, 'id'>>;
       };
+      validated_tickets: {
+        Row: ValidatedTicket;
+        Insert: Omit<ValidatedTicket, 'id' | 'created_at' | 'validated_at'>;
+        Update: Partial<Omit<ValidatedTicket, 'id' | 'created_at' | 'validated_at'>>;
+      };
     };
   };
 }
 
-export type Screen = 'login' | 'events-list' | 'tickets' | 'customer' | 'payment' | 'pix' | 'success' | 'admin';
+export interface ValidatedTicket {
+  id?: number;
+  ticket_code: string;
+  order_id: string;
+  event_id: number;
+  ticket_id: number;
+  customer_name: string;
+  validated_at?: string;
+  created_at?: string;
+}
+
+export type Screen = 'login' | 'events-list' | 'tickets' | 'customer' | 'payment' | 'pix' | 'success' | 'admin' | 'validate';

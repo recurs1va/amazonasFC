@@ -7,7 +7,8 @@ import {
   Customer, 
   Order, 
   Screen, 
-  OrderItem 
+  OrderItem,
+  ValidatedTicket 
 } from './types';
 import { 
   LogOut, 
@@ -22,7 +23,10 @@ import {
   Edit,
   Plus,
   AlertCircle,
-  X
+  X,
+  ScanLine,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -37,6 +41,90 @@ const MOCK_TICKETS: Ticket[] = [
   { id: 2, event_id: 1, name: 'VIP', price: 450.00, desc: 'Open bar e visão privilegiada' },
   { id: 3, event_id: 2, name: 'Ingresso Único', price: 80.00, desc: 'Acesso total' }
 ];
+
+// Função para gerar código único de ingresso (DETERMINÍSTICO)
+const generateTicketCode = (orderId: string, eventId: number, ticketId: number, itemIndex: number): string => {
+  // USA APENAS DADOS FIXOS - sem timestamp para ser determinístico
+  const baseString = `${orderId}-${eventId}-${ticketId}-${itemIndex}`;
+  // Criar hash simples (em produção, usar biblioteca crypto)
+  let hash = 0;
+  for (let i = 0; i < baseString.length; i++) {
+    const char = baseString.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  const hashStr = Math.abs(hash).toString(36).toUpperCase();
+  return `TKT-${eventId}-${hashStr}-${itemIndex}`;
+};
+
+// Função para validar código de ingresso
+const parseTicketCode = (code: string): { eventId: number; hash: string; index: number } | null => {
+  const match = code.match(/^TKT-(\d+)-([A-Z0-9]+)-(\d+)$/);
+  if (!match) return null;
+  return {
+    eventId: parseInt(match[1]),
+    hash: match[2],
+    index: parseInt(match[3])
+  };
+};
+
+// Funções de validação
+const validateEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
+
+const validatePhone = (phone: string): boolean => {
+  const phoneRegex = /^\(?([0-9]{2})\)?[-. ]?([0-9]{4,5})[-. ]?([0-9]{4})$/;
+  return phoneRegex.test(phone.replace(/\D/g, ''));
+};
+
+const validateCPF = (cpf: string): boolean => {
+  const cleanCpf = cpf.replace(/\D/g, '');
+  if (cleanCpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cleanCpf)) return false; // CPF com todos os dígitos iguais
+  
+  // Validação dos dígitos verificadores
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += parseInt(cleanCpf[i]) * (10 - i);
+  }
+  let remainder = (sum * 10) % 11;
+  if (remainder === 10) remainder = 0;
+  if (remainder !== parseInt(cleanCpf[9])) return false;
+  
+  sum = 0;
+  for (let i = 0; i < 10; i++) {
+    sum += parseInt(cleanCpf[i]) * (11 - i);
+  }
+  remainder = (sum * 10) % 11;
+  if (remainder === 10) remainder = 0;
+  if (remainder !== parseInt(cleanCpf[10])) return false;
+  
+  return true;
+};
+
+const validateName = (name: string): boolean => {
+  return name.trim().length >= 3 && /^[a-zA-ZÀ-ÿ\s]+$/.test(name);
+};
+
+const formatPhone = (phone: string): string => {
+  const cleaned = phone.replace(/\D/g, '');
+  const match = cleaned.match(/^(\d{2})(\d{4,5})(\d{4})$/);
+  if (match) {
+    return `(${match[1]}) ${match[2]}-${match[3]}`;
+  }
+  return phone;
+};
+
+const formatCPF = (cpf: string): string => {
+  const cleaned = cpf.replace(/\D/g, '');
+  const match = cleaned.match(/^(\d{3})(\d{3})(\d{3})(\d{2})$/);
+  if (match) {
+    return `${match[1]}.${match[2]}.${match[3]}-${match[4]}`;
+  }
+  return cpf;
+};
 
 const LoadingScreen = () => (
   <div className="min-h-screen bg-black flex items-center justify-center">
@@ -57,6 +145,7 @@ const App: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [validatedTickets, setValidatedTickets] = useState<ValidatedTicket[]>([]);
   
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [cart, setCart] = useState<Record<number, number>>({});
@@ -69,6 +158,12 @@ const App: React.FC = () => {
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  
+  // Estados para validação de ingressos
+  const [validateEventId, setValidateEventId] = useState<number | null>(null);
+  const [ticketCodeInput, setTicketCodeInput] = useState('');
+  const [validationResult, setValidationResult] = useState<{ valid: boolean; message: string; ticket?: any } | null>(null);
   
   // Estados para modais de criação/edição
   const [showEventModal, setShowEventModal] = useState(false);
@@ -95,9 +190,11 @@ const App: React.FC = () => {
       const { data: evData } = await supabase.from('events').select('*').order('id', { ascending: false });
       const { data: tiData } = await supabase.from('tickets').select('*');
       const { data: orData } = await supabase.from('orders').select('*, customers(*), events(*), order_items(*)').order('created_at', { ascending: false });
+      const { data: valData } = await supabase.from('validated_tickets').select('*');
 
       if (evData) setEvents(evData);
       if (tiData) setTickets(tiData);
+      if (valData) setValidatedTickets(valData);
       if (orData) setOrders(orData as any);
     } catch (error) {
       console.error('Erro ao carregar do Supabase:', error);
@@ -300,9 +397,21 @@ const App: React.FC = () => {
     }, 0);
 
     const orderIdString = `PED-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-    const orderItems: OrderItem[] = Object.entries(cart).map(([id, qty]) => {
+    
+    // Gerar itens do pedido com códigos de ingresso únicos
+    const orderItems: OrderItem[] = [];
+    let itemIndex = 0;
+    Object.entries(cart).forEach(([id, qty]) => {
       const t = tickets.find(x => x.id === parseInt(id))!;
-      return { ticket_id: t.id, ticket_name: t.name, quantity: qty, unit_price: t.price };
+      for (let i = 0; i < qty; i++) {
+        orderItems.push({ 
+          ticket_id: t.id, 
+          ticket_name: t.name, 
+          quantity: 1, 
+          unit_price: t.price 
+        });
+        itemIndex++;
+      }
     });
 
     const newOrder: Order = {
@@ -339,6 +448,149 @@ const App: React.FC = () => {
     setLastOrder(newOrder);
     setScreen('success');
     setLoading(false);
+  };
+
+  const validateCustomerData = (): boolean => {
+    const errors: Record<string, string> = {};
+    
+    if (!validateName(customer.name)) {
+      errors.name = 'Nome deve ter pelo menos 3 caracteres e conter apenas letras';
+    }
+    
+    if (!validateEmail(customer.email)) {
+      errors.email = 'Digite um e-mail válido';
+    }
+    
+    if (!validatePhone(customer.phone)) {
+      errors.phone = 'Digite um telefone válido (ex: (11) 99999-9999)';
+    }
+    
+    if (!validateCPF(customer.cpf)) {
+      errors.cpf = 'Digite um CPF válido';
+    }
+    
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleCustomerInputChange = (field: keyof Customer, value: string) => {
+    let formattedValue = value;
+    
+    if (field === 'phone') {
+      formattedValue = formatPhone(value);
+    } else if (field === 'cpf') {
+      formattedValue = formatCPF(value);
+    }
+    
+    setCustomer({ ...customer, [field]: formattedValue });
+    
+    // Limpar erro do campo quando usuário digitar
+    if (validationErrors[field]) {
+      setValidationErrors({ ...validationErrors, [field]: '' });
+    }
+  };
+
+  const validateTicket = async () => {
+    setValidationResult(null);
+    
+    if (!validateEventId) {
+      setValidationResult({ valid: false, message: 'Selecione um evento primeiro' });
+      return;
+    }
+    
+    if (!ticketCodeInput.trim()) {
+      setValidationResult({ valid: false, message: 'Digite o código do ingresso' });
+      return;
+    }
+    
+    // Parse do código
+    const parsed = parseTicketCode(ticketCodeInput.trim());
+    if (!parsed) {
+      setValidationResult({ valid: false, message: 'Código de ingresso inválido' });
+      return;
+    }
+    
+    // Verificar se o evento corresponde
+    if (parsed.eventId !== validateEventId) {
+      const wrongEvent = events.find(e => e.id === parsed.eventId);
+      setValidationResult({ 
+        valid: false, 
+        message: `Este ingresso é para o evento "${wrongEvent?.name || 'Desconhecido'}"` 
+      });
+      return;
+    }
+    
+    // Verificar se já foi validado
+    const alreadyValidated = validatedTickets.find(v => v.ticket_code === ticketCodeInput.trim());
+    if (alreadyValidated) {
+      setValidationResult({ 
+        valid: false, 
+        message: `Ingresso já validado em ${new Date(alreadyValidated.validated_at || '').toLocaleString('pt-BR')}` 
+      });
+      return;
+    }
+    
+    // VALIDAÇÃO CRÍTICA: Verificar se o código completo (incluindo hash) realmente existe
+    // Buscar em todos os pedidos do evento e regenerar os códigos para comparação
+    let foundTicket: { order: Order; itemIndex: number; item: OrderItem } | null = null;
+    
+    for (const order of orders.filter(o => o.event_id === validateEventId)) {
+      if (!order.order_items) continue;
+      
+      for (let idx = 0; idx < order.order_items.length; idx++) {
+        const item = order.order_items[idx];
+        // Regenerar o código que foi gerado para este item específico
+        const expectedCode = generateTicketCode(order.order_id, order.event_id, item.ticket_id, idx);
+        
+        if (expectedCode === ticketCodeInput.trim()) {
+          foundTicket = { order, itemIndex: idx, item };
+          break;
+        }
+      }
+      
+      if (foundTicket) break;
+    }
+    
+    if (!foundTicket) {
+      setValidationResult({ valid: false, message: 'Código de ingresso inválido ou não encontrado' });
+      return;
+    }
+    
+    const relatedOrder = foundTicket.order;
+    const ticketItem = foundTicket.item;
+    
+    // Validar com sucesso
+    const validatedTicket: ValidatedTicket = {
+      ticket_code: ticketCodeInput.trim(),
+      order_id: relatedOrder.order_id,
+      event_id: validateEventId,
+      ticket_id: ticketItem.ticket_id,
+      customer_name: relatedOrder.customers?.name || '',
+      validated_at: new Date().toISOString()
+    };
+    
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('validated_tickets').insert([validatedTicket]);
+        await loadData();
+      } catch (e) {
+        console.error(e);
+      }
+    } else {
+      setValidatedTickets([validatedTicket, ...validatedTickets]);
+    }
+    
+    setValidationResult({ 
+      valid: true, 
+      message: 'Ingresso válido!',
+      ticket: {
+        ...ticketItem,
+        customerName: relatedOrder.customers?.name,
+        orderId: relatedOrder.order_id
+      }
+    });
+    
+    setTicketCodeInput('');
   };
 
   if (loading && screen === 'login') return <LoadingScreen />;
@@ -454,10 +706,95 @@ const App: React.FC = () => {
         <div className="max-w-md mx-auto p-6 mt-12 bg-white rounded-2xl shadow-xl border-2 border-yellow-400">
           <h2 className="text-2xl font-bold mb-6">Seus Dados</h2>
           <div className="space-y-4">
-            <input placeholder="Nome Completo" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-yellow-400 outline-none" value={customer.name} onChange={e => setCustomer({...customer, name: e.target.value})} />
-            <input placeholder="CPF" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-yellow-400 outline-none" value={customer.cpf} onChange={e => setCustomer({...customer, cpf: e.target.value})} />
-            <input placeholder="E-mail" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-yellow-400 outline-none" value={customer.email} onChange={e => setCustomer({...customer, email: e.target.value})} />
-            <button onClick={() => setScreen('payment')} className="w-full bg-yellow-400 text-black py-3 rounded-xl font-bold hover:bg-yellow-500 transition">Ir para Pagamento</button>
+            <div>
+              <input 
+                placeholder="Nome Completo" 
+                className={`w-full p-3 border-2 rounded-xl outline-none transition ${
+                  validationErrors.name 
+                    ? 'border-red-500 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-yellow-400'
+                }`}
+                value={customer.name} 
+                onChange={e => handleCustomerInputChange('name', e.target.value)}
+              />
+              {validationErrors.name && (
+                <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                  <AlertCircle size={14} />
+                  {validationErrors.name}
+                </p>
+              )}
+            </div>
+            
+            <div>
+              <input 
+                placeholder="CPF (000.000.000-00)" 
+                className={`w-full p-3 border-2 rounded-xl outline-none transition ${
+                  validationErrors.cpf 
+                    ? 'border-red-500 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-yellow-400'
+                }`}
+                value={customer.cpf} 
+                onChange={e => handleCustomerInputChange('cpf', e.target.value)}
+                maxLength={14}
+              />
+              {validationErrors.cpf && (
+                <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                  <AlertCircle size={14} />
+                  {validationErrors.cpf}
+                </p>
+              )}
+            </div>
+            
+            <div>
+              <input 
+                placeholder="Telefone (11) 99999-9999" 
+                className={`w-full p-3 border-2 rounded-xl outline-none transition ${
+                  validationErrors.phone 
+                    ? 'border-red-500 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-yellow-400'
+                }`}
+                value={customer.phone} 
+                onChange={e => handleCustomerInputChange('phone', e.target.value)}
+                maxLength={15}
+              />
+              {validationErrors.phone && (
+                <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                  <AlertCircle size={14} />
+                  {validationErrors.phone}
+                </p>
+              )}
+            </div>
+            
+            <div>
+              <input 
+                placeholder="E-mail" 
+                type="email"
+                className={`w-full p-3 border-2 rounded-xl outline-none transition ${
+                  validationErrors.email 
+                    ? 'border-red-500 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-yellow-400'
+                }`}
+                value={customer.email} 
+                onChange={e => handleCustomerInputChange('email', e.target.value)}
+              />
+              {validationErrors.email && (
+                <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                  <AlertCircle size={14} />
+                  {validationErrors.email}
+                </p>
+              )}
+            </div>
+            
+            <button 
+              onClick={() => {
+                if (validateCustomerData()) {
+                  setScreen('payment');
+                }
+              }} 
+              className="w-full bg-yellow-400 text-black py-3 rounded-xl font-bold hover:bg-yellow-500 transition"
+            >
+              Ir para Pagamento
+            </button>
           </div>
         </div>
       )}
@@ -500,28 +837,34 @@ const App: React.FC = () => {
           </div>
           
           <div className="print-only hidden mt-8">
-            {lastOrder.order_items?.map((item, idx) => (
-              <div key={idx} className="border-4 border-dashed border-yellow-400 p-8 rounded-3xl mb-8 text-left bg-white relative">
-                <div className="flex justify-between items-start mb-6">
-                   <div>
-                      <h3 className="text-2xl font-black text-black uppercase">{lastOrder.events?.name}</h3>
-                      <p className="font-bold text-gray-500">{lastOrder.events?.date}</p>
-                   </div>
-                   <div className="text-right">
-                      <p className="text-xs text-gray-400">TIPO</p>
-                      <p className="font-black text-yellow-600">{item.ticket_name}</p>
-                   </div>
+            {lastOrder.order_items?.map((item, idx) => {
+              const ticketCode = generateTicketCode(lastOrder.order_id, lastOrder.event_id, item.ticket_id, idx);
+              return (
+                <div key={idx} className="border-4 border-dashed border-yellow-400 p-8 rounded-3xl mb-8 text-left bg-white relative">
+                  <div className="flex justify-between items-start mb-6">
+                     <div>
+                        <h3 className="text-2xl font-black text-black uppercase">{lastOrder.events?.name}</h3>
+                        <p className="font-bold text-gray-500">{lastOrder.events?.date}</p>
+                     </div>
+                     <div className="text-right">
+                        <p className="text-xs text-gray-400">TIPO</p>
+                        <p className="font-black text-yellow-600">{item.ticket_name}</p>
+                     </div>
+                  </div>
+                  <div className="flex gap-8 items-center border-t border-yellow-400 pt-6">
+                     <div className="text-center">
+                       <QRCodeSVG value={ticketCode} size={100} />
+                       <p className="text-xs text-gray-400 mt-2 font-mono">{ticketCode}</p>
+                     </div>
+                     <div>
+                        <p className="text-xs text-gray-400 uppercase">Titular</p>
+                        <p className="font-bold">{lastOrder.customers?.name}</p>
+                        <p className="text-gray-500 text-sm">{lastOrder.customers?.cpf}</p>
+                     </div>
+                  </div>
                 </div>
-                <div className="flex gap-8 items-center border-t border-yellow-400 pt-6">
-                   <QRCodeSVG value={lastOrder.order_id + idx} size={100} />
-                   <div>
-                      <p className="text-xs text-gray-400 uppercase">Titular</p>
-                      <p className="font-bold">{lastOrder.customers?.name}</p>
-                      <p className="text-gray-500 text-sm">{lastOrder.customers?.cpf}</p>
-                   </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -543,6 +886,12 @@ const App: React.FC = () => {
                     className={`w-full text-left px-4 py-2 rounded-lg font-bold capitalize ${adminTab === t ? 'bg-black text-yellow-400' : 'hover:bg-gray-200'}`}
                   > {t === 'events' ? 'Eventos' : t === 'tickets' ? 'Ingressos' : 'Relatórios'} </button>
                 ))}
+                <button 
+                  onClick={() => setScreen('validate')} 
+                  className="w-full text-left px-4 py-2 rounded-lg font-bold bg-yellow-400 hover:bg-yellow-500 flex items-center gap-2"
+                >
+                  <ScanLine size={18} /> Validar Ingresso
+                </button>
              </div>
              <div className="flex-1 bg-white rounded-2xl border-2 border-gray-200 p-8 shadow-sm">
                 {adminTab === 'events' && (
@@ -876,6 +1225,177 @@ const App: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {screen === 'validate' && (
+        <div className="min-h-screen bg-gray-50">
+          <header className="bg-black border-b border-yellow-400 h-16 flex items-center px-6 justify-between sticky top-0 z-10">
+            <h1 className="font-bold text-yellow-400 flex items-center gap-2"><ScanLine size={20} /> Validação de Ingressos</h1>
+            <div className="flex gap-4">
+              <button onClick={() => { setScreen('admin'); setValidationResult(null); setTicketCodeInput(''); }} className="text-white font-bold text-sm hover:text-yellow-400 transition flex items-center gap-2">
+                <ArrowLeft size={16} /> Voltar ao Admin
+              </button>
+              <button onClick={() => setScreen('login')} className="text-red-500 hover:text-red-400"><LogOut size={20} /></button>
+            </div>
+          </header>
+          
+          <div className="max-w-2xl mx-auto p-6 mt-8">
+            <div className="bg-white rounded-2xl shadow-xl p-8 border-2 border-yellow-400">
+              <h2 className="text-2xl font-bold mb-6 text-center">Validar Ingresso</h2>
+              
+              {/* Seleção de Evento */}
+              <div className="mb-6">
+                <label className="block text-sm font-bold mb-2 text-gray-700">Selecione o Evento</label>
+                <select 
+                  className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-yellow-400 outline-none"
+                  value={validateEventId || ''}
+                  onChange={(e) => {
+                    setValidateEventId(e.target.value ? parseInt(e.target.value) : null);
+                    setValidationResult(null);
+                  }}
+                >
+                  <option value="">Selecione um evento...</option>
+                  {events.map(event => (
+                    <option key={event.id} value={event.id}>
+                      {event.name} - {event.date}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Input do Código */}
+              <div className="mb-6">
+                <label className="block text-sm font-bold mb-2 text-gray-700">Código do Ingresso</label>
+                <div className="flex gap-3">
+                  <input 
+                    type="text"
+                    placeholder="TKT-XXX-XXXX-X"
+                    className="flex-1 p-3 border-2 border-gray-200 rounded-xl focus:border-yellow-400 outline-none uppercase font-mono"
+                    value={ticketCodeInput}
+                    onChange={(e) => {
+                      setTicketCodeInput(e.target.value.toUpperCase());
+                      setValidationResult(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        validateTicket();
+                      }
+                    }}
+                  />
+                  <button 
+                    onClick={validateTicket}
+                    className="px-8 bg-yellow-400 text-black rounded-xl font-bold hover:bg-yellow-500 transition flex items-center gap-2"
+                    disabled={!validateEventId || !ticketCodeInput.trim()}
+                  >
+                    <ScanLine size={20} /> Validar
+                  </button>
+                </div>
+                <p className="text-sm text-gray-500 mt-2">
+                  Digite ou escaneie o código QR do ingresso
+                </p>
+              </div>
+
+              {/* Resultado da Validação */}
+              {validationResult && (
+                <div className={`p-6 rounded-xl border-2 ${
+                  validationResult.valid 
+                    ? 'bg-green-50 border-green-500' 
+                    : 'bg-red-50 border-red-500'
+                }`}>
+                  <div className="flex items-center gap-3 mb-3">
+                    {validationResult.valid ? (
+                      <CheckCircle2 size={32} className="text-green-600" />
+                    ) : (
+                      <XCircle size={32} className="text-red-600" />
+                    )}
+                    <div>
+                      <h3 className={`text-xl font-bold ${
+                        validationResult.valid ? 'text-green-700' : 'text-red-700'
+                      }`}>
+                        {validationResult.valid ? 'Ingresso Válido!' : 'Ingresso Inválido'}
+                      </h3>
+                      <p className={validationResult.valid ? 'text-green-600' : 'text-red-600'}>
+                        {validationResult.message}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {validationResult.valid && validationResult.ticket && (
+                    <div className="mt-4 pt-4 border-t border-green-300">
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-gray-600 font-semibold">Titular:</p>
+                          <p className="font-bold">{validationResult.ticket.customerName}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600 font-semibold">Tipo de Ingresso:</p>
+                          <p className="font-bold">{validationResult.ticket.ticket_name}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600 font-semibold">Pedido:</p>
+                          <p className="font-bold font-mono">{validationResult.ticket.orderId}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600 font-semibold">Valor:</p>
+                          <p className="font-bold text-green-600">R$ {validationResult.ticket.unit_price.toFixed(2)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Estatísticas */}
+              {validateEventId && (
+                <div className="mt-8 pt-6 border-t border-gray-200">
+                  <h3 className="font-bold mb-3 text-gray-700">Estatísticas do Evento</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <p className="text-sm text-gray-600">Ingressos Vendidos</p>
+                      <p className="text-2xl font-bold text-yellow-600">
+                        {orders
+                          .filter(o => o.event_id === validateEventId)
+                          .reduce((sum, o) => sum + (o.order_items?.reduce((s, i) => s + i.quantity, 0) || 0), 0)}
+                      </p>
+                    </div>
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <p className="text-sm text-gray-600">Ingressos Validados</p>
+                      <p className="text-2xl font-bold text-green-600">
+                        {validatedTickets.filter(v => v.event_id === validateEventId).length}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Lista de Validações Recentes */}
+            {validateEventId && validatedTickets.filter(v => v.event_id === validateEventId).length > 0 && (
+              <div className="bg-white rounded-2xl shadow-xl p-6 mt-6 border-2 border-gray-200">
+                <h3 className="font-bold mb-4 text-gray-700">Validações Recentes</h3>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {validatedTickets
+                    .filter(v => v.event_id === validateEventId)
+                    .slice(0, 10)
+                    .map((v, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
+                        <div>
+                          <p className="font-bold text-sm">{v.customer_name}</p>
+                          <p className="text-xs text-gray-500 font-mono">{v.ticket_code}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500">
+                            {new Date(v.validated_at || '').toLocaleString('pt-BR')}
+                          </p>
+                          <CheckCircle2 size={16} className="text-green-600 ml-auto mt-1" />
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

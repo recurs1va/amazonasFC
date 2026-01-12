@@ -42,10 +42,10 @@ const MOCK_TICKETS: Ticket[] = [
   { id: 3, event_id: 2, name: 'Ingresso Único', price: 80.00, desc: 'Acesso total' }
 ];
 
-// Função para gerar código único de ingresso
+// Função para gerar código único de ingresso (DETERMINÍSTICO)
 const generateTicketCode = (orderId: string, eventId: number, ticketId: number, itemIndex: number): string => {
-  const timestamp = Date.now();
-  const baseString = `${orderId}-${eventId}-${ticketId}-${itemIndex}-${timestamp}`;
+  // USA APENAS DADOS FIXOS - sem timestamp para ser determinístico
+  const baseString = `${orderId}-${eventId}-${ticketId}-${itemIndex}`;
   // Criar hash simples (em produção, usar biblioteca crypto)
   let hash = 0;
   for (let i = 0; i < baseString.length; i++) {

@@ -38,6 +38,64 @@ const MOCK_TICKETS: Ticket[] = [
   { id: 3, event_id: 2, name: 'Ingresso Único', price: 80.00, desc: 'Acesso total' }
 ];
 
+// Funções de validação
+const validateEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
+
+const validatePhone = (phone: string): boolean => {
+  const phoneRegex = /^\(?([0-9]{2})\)?[-. ]?([0-9]{4,5})[-. ]?([0-9]{4})$/;
+  return phoneRegex.test(phone.replace(/\D/g, ''));
+};
+
+const validateCPF = (cpf: string): boolean => {
+  const cleanCpf = cpf.replace(/\D/g, '');
+  if (cleanCpf.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cleanCpf)) return false; // CPF com todos os dígitos iguais
+  
+  // Validação dos dígitos verificadores
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += parseInt(cleanCpf[i]) * (10 - i);
+  }
+  let remainder = (sum * 10) % 11;
+  if (remainder === 10) remainder = 0;
+  if (remainder !== parseInt(cleanCpf[9])) return false;
+  
+  sum = 0;
+  for (let i = 0; i < 10; i++) {
+    sum += parseInt(cleanCpf[i]) * (11 - i);
+  }
+  remainder = (sum * 10) % 11;
+  if (remainder === 10) remainder = 0;
+  if (remainder !== parseInt(cleanCpf[10])) return false;
+  
+  return true;
+};
+
+const validateName = (name: string): boolean => {
+  return name.trim().length >= 3 && /^[a-zA-ZÀ-ÿ\s]+$/.test(name);
+};
+
+const formatPhone = (phone: string): string => {
+  const cleaned = phone.replace(/\D/g, '');
+  const match = cleaned.match(/^(\d{2})(\d{4,5})(\d{4})$/);
+  if (match) {
+    return `(${match[1]}) ${match[2]}-${match[3]}`;
+  }
+  return phone;
+};
+
+const formatCPF = (cpf: string): string => {
+  const cleaned = cpf.replace(/\D/g, '');
+  const match = cleaned.match(/^(\d{3})(\d{3})(\d{3})(\d{2})$/);
+  if (match) {
+    return `${match[1]}.${match[2]}.${match[3]}-${match[4]}`;
+  }
+  return cpf;
+};
+
 const LoadingScreen = () => (
   <div className="min-h-screen bg-black flex items-center justify-center">
     <div className="text-white text-center">
@@ -69,6 +127,7 @@ const App: React.FC = () => {
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   
   // Estados para modais de criação/edição
   const [showEventModal, setShowEventModal] = useState(false);
@@ -341,6 +400,46 @@ const App: React.FC = () => {
     setLoading(false);
   };
 
+  const validateCustomerData = (): boolean => {
+    const errors: Record<string, string> = {};
+    
+    if (!validateName(customer.name)) {
+      errors.name = 'Nome deve ter pelo menos 3 caracteres e conter apenas letras';
+    }
+    
+    if (!validateEmail(customer.email)) {
+      errors.email = 'Digite um e-mail válido';
+    }
+    
+    if (!validatePhone(customer.phone)) {
+      errors.phone = 'Digite um telefone válido (ex: (11) 99999-9999)';
+    }
+    
+    if (!validateCPF(customer.cpf)) {
+      errors.cpf = 'Digite um CPF válido';
+    }
+    
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleCustomerInputChange = (field: keyof Customer, value: string) => {
+    let formattedValue = value;
+    
+    if (field === 'phone') {
+      formattedValue = formatPhone(value);
+    } else if (field === 'cpf') {
+      formattedValue = formatCPF(value);
+    }
+    
+    setCustomer({ ...customer, [field]: formattedValue });
+    
+    // Limpar erro do campo quando usuário digitar
+    if (validationErrors[field]) {
+      setValidationErrors({ ...validationErrors, [field]: '' });
+    }
+  };
+
   if (loading && screen === 'login') return <LoadingScreen />;
 
   return (
@@ -454,10 +553,95 @@ const App: React.FC = () => {
         <div className="max-w-md mx-auto p-6 mt-12 bg-white rounded-2xl shadow-xl border-2 border-yellow-400">
           <h2 className="text-2xl font-bold mb-6">Seus Dados</h2>
           <div className="space-y-4">
-            <input placeholder="Nome Completo" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-yellow-400 outline-none" value={customer.name} onChange={e => setCustomer({...customer, name: e.target.value})} />
-            <input placeholder="CPF" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-yellow-400 outline-none" value={customer.cpf} onChange={e => setCustomer({...customer, cpf: e.target.value})} />
-            <input placeholder="E-mail" className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-yellow-400 outline-none" value={customer.email} onChange={e => setCustomer({...customer, email: e.target.value})} />
-            <button onClick={() => setScreen('payment')} className="w-full bg-yellow-400 text-black py-3 rounded-xl font-bold hover:bg-yellow-500 transition">Ir para Pagamento</button>
+            <div>
+              <input 
+                placeholder="Nome Completo" 
+                className={`w-full p-3 border-2 rounded-xl outline-none transition ${
+                  validationErrors.name 
+                    ? 'border-red-500 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-yellow-400'
+                }`}
+                value={customer.name} 
+                onChange={e => handleCustomerInputChange('name', e.target.value)}
+              />
+              {validationErrors.name && (
+                <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                  <AlertCircle size={14} />
+                  {validationErrors.name}
+                </p>
+              )}
+            </div>
+            
+            <div>
+              <input 
+                placeholder="CPF (000.000.000-00)" 
+                className={`w-full p-3 border-2 rounded-xl outline-none transition ${
+                  validationErrors.cpf 
+                    ? 'border-red-500 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-yellow-400'
+                }`}
+                value={customer.cpf} 
+                onChange={e => handleCustomerInputChange('cpf', e.target.value)}
+                maxLength={14}
+              />
+              {validationErrors.cpf && (
+                <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                  <AlertCircle size={14} />
+                  {validationErrors.cpf}
+                </p>
+              )}
+            </div>
+            
+            <div>
+              <input 
+                placeholder="Telefone (11) 99999-9999" 
+                className={`w-full p-3 border-2 rounded-xl outline-none transition ${
+                  validationErrors.phone 
+                    ? 'border-red-500 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-yellow-400'
+                }`}
+                value={customer.phone} 
+                onChange={e => handleCustomerInputChange('phone', e.target.value)}
+                maxLength={15}
+              />
+              {validationErrors.phone && (
+                <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                  <AlertCircle size={14} />
+                  {validationErrors.phone}
+                </p>
+              )}
+            </div>
+            
+            <div>
+              <input 
+                placeholder="E-mail" 
+                type="email"
+                className={`w-full p-3 border-2 rounded-xl outline-none transition ${
+                  validationErrors.email 
+                    ? 'border-red-500 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-yellow-400'
+                }`}
+                value={customer.email} 
+                onChange={e => handleCustomerInputChange('email', e.target.value)}
+              />
+              {validationErrors.email && (
+                <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                  <AlertCircle size={14} />
+                  {validationErrors.email}
+                </p>
+              )}
+            </div>
+            
+            <button 
+              onClick={() => {
+                if (validateCustomerData()) {
+                  setScreen('payment');
+                }
+              }} 
+              className="w-full bg-yellow-400 text-black py-3 rounded-xl font-bold hover:bg-yellow-500 transition"
+            >
+              Ir para Pagamento
+            </button>
           </div>
         </div>
       )}

@@ -614,7 +614,7 @@ const App: React.FC = () => {
         <div className="min-h-screen bg-black flex items-center justify-center p-4">
           <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md border-4 border-yellow-400">
             <h1 className="text-3xl font-bold text-center mb-8 flex items-center justify-center gap-2 text-black">
-              <TicketIcon size={32} className="text-yellow-500" /> Ingressos Onça do Amazonas
+              <TicketIcon size={32} className="text-yellow-500" /> Ingressos Amazonas FC
             </h1>
             <div className="space-y-4">
               <input

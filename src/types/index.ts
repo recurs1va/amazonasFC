@@ -95,4 +95,4 @@ export interface ValidatedTicket {
   created_at?: string;
 }
 
-export type Screen = 'login' | 'events-list' | 'tickets' | 'customer' | 'payment' | 'pix' | 'success' | 'admin' | 'validate';
+export type Screen = 'login' | 'events-list' | 'tickets' | 'customer' | 'payment' | 'pix' | 'card' | 'tickets-print' | 'success' | 'admin' | 'validate';

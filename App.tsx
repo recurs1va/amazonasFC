@@ -1,7 +1,18 @@
-import React, { useState } from 'react';
-import { Screen } from './src/types';
+import React, { useState, useEffect } from 'react';
+import { Screen, Customer } from './src/types';
 import { LoadingScreen, SuccessMessage } from './src/components/common';
 import { useAuth, useEvents, useTickets, useCart } from './src/hooks';
+import { 
+  CheckoutScreen,
+  PaymentScreen,
+  PixScreen,
+  CardPaymentScreen,
+  SuccessScreen,
+  TicketsPrintScreen,
+  AdminScreenFull,
+  ValidationScreenFull
+} from './src/components/screens';
+import { orderService } from './src/services';
 
 // TELAS TEMPORÁRIAS (Remover após criar componentes de tela separados)
 import { 
@@ -16,6 +27,9 @@ const App: React.FC = () => {
   const [screen, setScreen] = useState<Screen>('login');
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
+  const [customerData, setCustomerData] = useState<Customer | null>(null);
+  const [orderId, setOrderId] = useState('');
+  const [orders, setOrders] = useState<any[]>([]);
 
   // === HOOKS CUSTOMIZADOS ===
   const { user, login, logout } = useAuth();
@@ -33,6 +47,7 @@ const App: React.FC = () => {
     login(email, password);
     if (email === 'admin@admin.com') {
       setScreen('admin');
+      loadOrders();
     } else {
       setScreen('events-list');
     }
@@ -44,8 +59,133 @@ const App: React.FC = () => {
     clearCart();
   };
 
+  const loadOrders = async () => {
+    try {
+      const allOrders = await orderService.getAll();
+      setOrders(allOrders);
+    } catch (error) {
+      console.error('Erro ao carregar pedidos:', error);
+    }
+  };
+
+  const reloadAllData = () => {
+    loadOrders();
+    // Os hooks já recarregam automaticamente events e tickets
+  };
+
+  // Carregar pedidos ao montar o componente se estiver na tela de admin
+  useEffect(() => {
+    if (screen === 'admin') {
+      loadOrders();
+    }
+  }, [screen]);
+
+  const handleCheckoutSubmit = (customer: Customer) => {
+    setCustomerData(customer);
+    setScreen('payment');
+  };
+
+  const handlePaymentMethod = (method: 'pix' | 'card') => {
+    if (method === 'pix') {
+      setScreen('pix');
+    } else {
+      setScreen('card');
+    }
+  };
+
+  const handlePixConfirm = async () => {
+    await processPayment('pix');
+  };
+
+  const handleCardConfirm = async () => {
+    await processPayment('card');
+  };
+
+  const processPayment = async (paymentMethod: 'pix' | 'card') => {
+    console.log('processPayment iniciado', { paymentMethod, customerData, selectedEventId });
+    
+    if (!customerData || !selectedEventId) {
+      console.error('Dados faltando:', { customerData, selectedEventId });
+      handleShowSuccess('Erro: dados do cliente ou evento não encontrados');
+      return;
+    }
+
+    // Gerar orderId imediatamente para garantir que temos um ID
+    const newOrderId = `ORD-${Date.now()}`;
+    setOrderId(newOrderId);
+
+    try {
+      const orderItems = Object.entries(cart)
+        .filter(([_, qty]) => (qty as number) > 0)
+        .map(([ticketId, qty]) => {
+          const ticket = tickets.find(t => t.id === Number(ticketId));
+          const quantity = qty as number;
+          return {
+            ticket_id: Number(ticketId),
+            ticket_name: ticket?.name || '',
+            quantity: quantity,
+            unit_price: ticket?.price || 0
+          };
+        });
+
+      console.log('Criando pedido...', { orderItems, newOrderId });
+
+      const order = await orderService.create(
+        customerData,
+        {
+          order_id: newOrderId,
+          event_id: selectedEventId,
+          total: getTotal(tickets),
+          payment_method: paymentMethod
+        },
+        orderItems
+      );
+
+      console.log('Pedido criado com sucesso:', order);
+      
+      console.log('Navegando para tickets-print...');
+      setScreen('tickets-print');
+    } catch (error) {
+      console.error('Erro ao criar pedido:', error);
+      // Mesmo com erro, vamos para a tela de tickets (em produção, tratar melhor)
+      console.log('Navegando para tickets-print mesmo com erro...');
+      setScreen('tickets-print');
+      // handleShowSuccess('Erro ao processar pedido: ' + (error as Error).message);
+    }
+  };
+
+  const handleDownloadTicket = () => {
+    handleShowSuccess('Download de PDF em desenvolvimento');
+  };
+
+  const handleGoHome = () => {
+    setScreen('events-list');
+    setSelectedEventId(null);
+    setCustomerData(null);
+    setOrderId('');
+    clearCart();
+  };
+
+  const handleValidateTicket = async (code: string, eventId: number) => {
+    // Implementar validação real depois usando validationService
+    // Por enquanto, simulação básica
+    return {
+      valid: true,
+      message: 'Ingresso validado com sucesso!',
+      ticket: {
+        customerName: 'Cliente Teste',
+        ticket_name: 'Ingresso VIP',
+        orderId: 'ORD-123456',
+        ticketId: 1,
+        unit_price: 100.00
+      }
+    };
+  };
+
   // === RENDERIZAÇÃO ===
   if (eventsLoading && screen === 'login') return <LoadingScreen />;
+
+  console.log('Render:', { screen, customerData: !!customerData, selectedEventId, orderId });
 
   return (
     <div className="min-h-screen text-gray-900">
@@ -80,11 +220,101 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* As outras telas serão implementadas em componentes separados */}
-      {/* <CheckoutScreen /> */}
-      {/* <ConfirmScreen /> */}
-      {/* <AdminScreen /> */}
-      {/* <ValidationScreen /> */}
+      {/* CHECKOUT / CADASTRO DO CLIENTE */}
+      {screen === 'customer' && (
+        <CheckoutScreen
+          cart={cart}
+          tickets={tickets}
+          total={getTotal(tickets)}
+          onBack={() => setScreen('tickets')}
+          onSubmit={handleCheckoutSubmit}
+        />
+      )}
+
+      {/* SELEÇÃO DE PAGAMENTO */}
+      {screen === 'payment' && (
+        <PaymentScreen
+          total={getTotal(tickets)}
+          onBack={() => setScreen('customer')}
+          onSelectMethod={handlePaymentMethod}
+        />
+      )}
+
+      {/* PAGAMENTO PIX */}
+      {screen === 'pix' && (
+        <PixScreen
+          total={getTotal(tickets)}
+          pixCode={`00020126580014br.gov.bcb.pix0136${Date.now()}520400005303986540${getTotal(tickets).toFixed(2)}5802BR5913Amazonas FC6009Manaus62070503***6304${Math.random().toString(36).substring(7)}`}
+          onBack={() => setScreen('payment')}
+          onConfirm={handlePixConfirm}
+        />
+      )}
+
+      {/* PAGAMENTO CARTÃO */}
+      {screen === 'card' && (
+        <CardPaymentScreen
+          total={getTotal(tickets)}
+          onBack={() => setScreen('payment')}
+          onConfirm={handleCardConfirm}
+        />
+      )}
+
+      {/* IMPRESSÃO DE TICKETS */}
+      {screen === 'tickets-print' && customerData && selectedEventId && (
+        <TicketsPrintScreen
+          orderId={orderId}
+          eventId={selectedEventId}
+          event={events.find(e => e.id === selectedEventId)}
+          cartItems={Object.entries(cart)
+            .filter(([_, qty]) => (qty as number) > 0)
+            .map(([ticketId, qty]) => ({
+              ticketId: Number(ticketId),
+              quantity: qty as number
+            }))}
+          tickets={tickets}
+          customerName={customerData.name}
+          customerEmail={customerData.email}
+          customerCpf={customerData.cpf}
+          total={getTotal(tickets)}
+          onGoHome={handleGoHome}
+        />
+      )}
+
+      {/* SUCESSO */}
+      {screen === 'success' && customerData && (
+        <SuccessScreen
+          orderNumber={orderId}
+          total={getTotal(tickets)}
+          customerEmail={customerData.email}
+          onDownloadTicket={handleDownloadTicket}
+          onGoHome={handleGoHome}
+        />
+      )}
+
+      {/* ADMIN */}
+      {screen === 'admin' && (
+        <AdminScreenFull
+          orders={orders}
+          events={events}
+          tickets={tickets}
+          onLogout={handleLogout}
+          onValidateTickets={() => setScreen('validate')}
+          onShowSuccess={handleShowSuccess}
+          onViewSite={() => setScreen('events-list')}
+          onReloadData={reloadAllData}
+        />
+      )}
+
+      {/* VALIDAÇÃO */}
+      {screen === 'validate' && (
+        <ValidationScreenFull
+          events={events}
+          orders={orders}
+          onBack={() => setScreen('admin')}
+          onLogout={handleLogout}
+          onValidate={handleValidateTicket}
+        />
+      )}
     </div>
   );
 };

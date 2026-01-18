@@ -92,15 +92,22 @@ export const AdminScreenFull: React.FC<AdminScreenFullProps> = ({
   };
 
   const deleteEvent = async (eventId: number) => {
-    if (!confirm('Tem certeza que deseja excluir este evento?')) return;
+    console.log('deleteEvent clicado, eventId:', eventId);
+    if (!confirm('Tem certeza que deseja excluir este evento?')) {
+      console.log('Usuário cancelou a exclusão');
+      return;
+    }
     
+    console.log('Usuário confirmou, iniciando exclusão...');
     try {
       await eventService.delete(eventId);
+      console.log('Exclusão realizada com sucesso');
       onShowSuccess('Evento excluído com sucesso!');
       onReloadData();
+      console.log('reloadData chamado');
     } catch (error) {
       onShowSuccess('Erro ao excluir evento');
-      console.error(error);
+      console.error('Erro na exclusão:', error);
     }
   };
 

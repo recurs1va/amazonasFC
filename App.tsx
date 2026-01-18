@@ -33,8 +33,8 @@ const App: React.FC = () => {
 
   // === HOOKS CUSTOMIZADOS ===
   const { user, login, logout } = useAuth();
-  const { events, loading: eventsLoading } = useEvents();
-  const { tickets } = useTickets();
+  const { events, loading: eventsLoading, loadEvents } = useEvents();
+  const { tickets, loadTickets } = useTickets();
   const { cart, addToCart, removeFromCart, clearCart, getTotal } = useCart();
 
   // === FUNÇÕES ===
@@ -68,9 +68,10 @@ const App: React.FC = () => {
     }
   };
 
-  const reloadAllData = () => {
-    loadOrders();
-    // Os hooks já recarregam automaticamente events e tickets
+  const reloadAllData = async () => {
+    await loadOrders();
+    await loadEvents();
+    await loadTickets();
   };
 
   // Carregar pedidos ao montar o componente se estiver na tela de admin

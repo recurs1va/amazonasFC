@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Event } from '../types';
 import { eventService } from '../services/eventService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
+import { localStorageService } from '../services/localStorageService';
 import { MOCK_EVENTS } from '../constants/mockData';
 
 export const useEvents = () => {
@@ -9,13 +10,45 @@ export const useEvents = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const loadEvents = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        if (!isSupabaseConfigured) {
+          // Carregar do localStorage ou usar dados mock se estiver vazio
+          const localEvents = localStorageService.getEvents();
+          if (localEvents.length === 0) {
+            localStorageService.saveEvents(MOCK_EVENTS);
+            setEvents(MOCK_EVENTS);
+          } else {
+            setEvents(localEvents);
+          }
+        } else {
+          const data = await eventService.getAll();
+          setEvents(data);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro ao carregar eventos');
+        console.error('Erro ao carregar eventos:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadEvents();
+  }, []);
+
   const loadEvents = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
       if (!isSupabaseConfigured) {
-        setEvents(MOCK_EVENTS);
+        // Ao recarregar, apenas carrega do localStorage (não reseta para mocks)
+        const localEvents = localStorageService.getEvents();
+        setEvents(localEvents);
       } else {
         const data = await eventService.getAll();
         setEvents(data);
@@ -30,8 +63,8 @@ export const useEvents = () => {
 
   const createEvent = useCallback(async (event: Omit<Event, 'id' | 'created_at'>) => {
     if (!isSupabaseConfigured) {
-      const newId = Math.max(...events.map(e => e.id), 0) + 1;
-      setEvents([...events, { id: newId, ...event }]);
+      const newEvent = localStorageService.addEvent(event);
+      setEvents(prev => [...prev, newEvent]);
       return;
     }
 
@@ -42,11 +75,12 @@ export const useEvents = () => {
       setError(err instanceof Error ? err.message : 'Erro ao criar evento');
       throw err;
     }
-  }, [events, loadEvents]);
+  }, [loadEvents]);
 
   const updateEvent = useCallback(async (id: number, event: Partial<Event>) => {
     if (!isSupabaseConfigured) {
-      setEvents(events.map(e => e.id === id ? { ...e, ...event } : e));
+      const updatedEvent = localStorageService.updateEvent(id, event);
+      setEvents(prev => prev.map(e => e.id === id ? updatedEvent : e));
       return;
     }
 
@@ -57,11 +91,12 @@ export const useEvents = () => {
       setError(err instanceof Error ? err.message : 'Erro ao atualizar evento');
       throw err;
     }
-  }, [events, loadEvents]);
+  }, [loadEvents]);
 
   const deleteEvent = useCallback(async (id: number) => {
     if (!isSupabaseConfigured) {
-      setEvents(events.filter(e => e.id !== id));
+      localStorageService.deleteEvent(id);
+      setEvents(prev => prev.filter(e => e.id !== id));
       return;
     }
 
@@ -72,10 +107,7 @@ export const useEvents = () => {
       setError(err instanceof Error ? err.message : 'Erro ao excluir evento');
       throw err;
     }
-  }, [events, loadEvents]);
 
-  useEffect(() => {
-    loadEvents();
   }, [loadEvents]);
 
   return {

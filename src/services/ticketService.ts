@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { localStorageService } from './localStorageService';
 import { Ticket } from '../types';
 
 /**
@@ -9,8 +10,8 @@ export class TicketService {
    * Busca todos os ingressos
    */
   async getAll(): Promise<Ticket[]> {
-    if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado');
+    if (!isSupabaseConfigured || !supabase) {
+      return localStorageService.getTickets();
     }
 
     const { data, error } = await supabase
@@ -25,8 +26,9 @@ export class TicketService {
    * Busca ingressos por evento
    */
   async getByEvent(eventId: number): Promise<Ticket[]> {
-    if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado');
+    if (!isSupabaseConfigured || !supabase) {
+      const tickets = localStorageService.getTickets();
+      return tickets.filter(t => t.event_id === eventId);
     }
 
     const { data, error } = await supabase
@@ -42,8 +44,8 @@ export class TicketService {
    * Cria um novo ingresso
    */
   async create(ticket: Omit<Ticket, 'id' | 'created_at'>): Promise<Ticket> {
-    if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado');
+    if (!isSupabaseConfigured || !supabase) {
+      return localStorageService.addTicket(ticket);
     }
 
     const { data, error } = await supabase
@@ -60,8 +62,8 @@ export class TicketService {
    * Atualiza um ingresso existente
    */
   async update(id: number, ticket: Partial<Ticket>): Promise<Ticket> {
-    if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado');
+    if (!isSupabaseConfigured || !supabase) {
+      return localStorageService.updateTicket(id, ticket);
     }
 
     const { data, error } = await supabase
@@ -79,8 +81,9 @@ export class TicketService {
    * Exclui um ingresso
    */
   async delete(id: number): Promise<void> {
-    if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado');
+    if (!isSupabaseConfigured || !supabase) {
+      localStorageService.deleteTicket(id);
+      return;
     }
 
     const { error } = await supabase

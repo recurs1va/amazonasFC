@@ -1,5 +1,5 @@
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Database } from './types';
 
 // Função auxiliar para buscar variáveis de ambiente de forma segura em diferentes ambientes (Vite, Webpack, Node)
@@ -21,10 +21,25 @@ const getEnv = (name: string): string => {
 const SUPABASE_URL = getEnv('VITE_SUPABASE_URL');
 const SUPABASE_KEY = getEnv('VITE_SUPABASE_KEY');
 
-export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_KEY);
+// Valida se a URL é uma URL HTTP/HTTPS válida
+const isValidUrl = (url: string): boolean => {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
 
-// Se não configurado, usamos URLs de placeholder para evitar crash na inicialização
-export const supabase = createClient<Database>(
-  SUPABASE_URL || 'https://placeholder.supabase.co',
-  SUPABASE_KEY || 'placeholder'
+// Só considera configurado se a URL for válida e a key existir
+export const isSupabaseConfigured = Boolean(
+  SUPABASE_URL && 
+  SUPABASE_KEY && 
+  isValidUrl(SUPABASE_URL)
 );
+
+// Só cria o cliente Supabase se estiver configurado corretamente
+// Caso contrário, exporta null e o sistema usa localStorage
+export const supabase: SupabaseClient<Database> | null = isSupabaseConfigured 
+  ? createClient<Database>(SUPABASE_URL, SUPABASE_KEY)
+  : null;

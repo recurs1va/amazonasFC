@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Ticket } from '../types';
 import { ticketService } from '../services/ticketService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
+import { localStorageService } from '../services/localStorageService';
 import { MOCK_TICKETS } from '../constants/mockData';
 
 export const useTickets = () => {
@@ -9,13 +10,45 @@ export const useTickets = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const loadTickets = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        if (!isSupabaseConfigured) {
+          // Carregar do localStorage ou usar dados mock se estiver vazio
+          const localTickets = localStorageService.getTickets();
+          if (localTickets.length === 0) {
+            localStorageService.saveTickets(MOCK_TICKETS);
+            setTickets(MOCK_TICKETS);
+          } else {
+            setTickets(localTickets);
+          }
+        } else {
+          const data = await ticketService.getAll();
+          setTickets(data);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro ao carregar ingressos');
+        console.error('Erro ao carregar ingressos:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadTickets();
+  }, []);
+
   const loadTickets = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
       if (!isSupabaseConfigured) {
-        setTickets(MOCK_TICKETS);
+        // Ao recarregar, apenas carrega do localStorage (não reseta para mocks)
+        const localTickets = localStorageService.getTickets();
+        setTickets(localTickets);
       } else {
         const data = await ticketService.getAll();
         setTickets(data);
@@ -30,8 +63,8 @@ export const useTickets = () => {
 
   const createTicket = useCallback(async (ticket: Omit<Ticket, 'id' | 'created_at'>) => {
     if (!isSupabaseConfigured) {
-      const newId = Math.max(...tickets.map(t => t.id), 0) + 1;
-      setTickets([...tickets, { id: newId, ...ticket }]);
+      const newTicket = localStorageService.addTicket(ticket);
+      setTickets(prev => [...prev, newTicket]);
       return;
     }
 
@@ -42,11 +75,12 @@ export const useTickets = () => {
       setError(err instanceof Error ? err.message : 'Erro ao criar ingresso');
       throw err;
     }
-  }, [tickets, loadTickets]);
+  }, [loadTickets]);
 
   const updateTicket = useCallback(async (id: number, ticket: Partial<Ticket>) => {
     if (!isSupabaseConfigured) {
-      setTickets(tickets.map(t => t.id === id ? { ...t, ...ticket } : t));
+      const updatedTicket = localStorageService.updateTicket(id, ticket);
+      setTickets(prev => prev.map(t => t.id === id ? updatedTicket : t));
       return;
     }
 
@@ -57,11 +91,12 @@ export const useTickets = () => {
       setError(err instanceof Error ? err.message : 'Erro ao atualizar ingresso');
       throw err;
     }
-  }, [tickets, loadTickets]);
+  }, [loadTickets]);
 
   const deleteTicket = useCallback(async (id: number) => {
     if (!isSupabaseConfigured) {
-      setTickets(tickets.filter(t => t.id !== id));
+      localStorageService.deleteTicket(id);
+      setTickets(prev => prev.filter(t => t.id !== id));
       return;
     }
 
@@ -72,15 +107,11 @@ export const useTickets = () => {
       setError(err instanceof Error ? err.message : 'Erro ao excluir ingresso');
       throw err;
     }
-  }, [tickets, loadTickets]);
+  }, [loadTickets]);
 
   const getTicketsByEvent = useCallback((eventId: number) => {
     return tickets.filter(t => t.event_id === eventId);
   }, [tickets]);
-
-  useEffect(() => {
-    loadTickets();
-  }, [loadTickets]);
 
   return {
     tickets,

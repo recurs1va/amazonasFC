@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { localStorageService } from './localStorageService';
 import { ValidatedTicket } from '../types';
 
 /**
@@ -9,8 +10,8 @@ export class ValidationService {
    * Busca todos os ingressos validados
    */
   async getAll(): Promise<ValidatedTicket[]> {
-    if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado');
+    if (!isSupabaseConfigured || !supabase) {
+      return localStorageService.getValidatedTickets();
     }
 
     const { data, error } = await supabase
@@ -25,8 +26,19 @@ export class ValidationService {
    * Valida um ingresso
    */
   async validate(ticketCode: string, eventId: number): Promise<ValidatedTicket> {
-    if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado');
+    if (!isSupabaseConfigured || !supabase) {
+      // Verifica se já foi validado
+      if (localStorageService.isTicketValidated(ticketCode)) {
+        throw new Error('Ingresso já foi validado anteriormente');
+      }
+
+      // Registra a validação
+      const validatedTicket = localStorageService.addValidatedTicket({
+        ticket_code: ticketCode,
+        event_id: eventId,
+      });
+
+      return validatedTicket;
     }
 
     // Verifica se o ingresso já foi validado
@@ -60,8 +72,8 @@ export class ValidationService {
    * Verifica se um ingresso já foi validado
    */
   async isValidated(ticketCode: string, eventId: number): Promise<boolean> {
-    if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado');
+    if (!isSupabaseConfigured || !supabase) {
+      return localStorageService.isTicketValidated(ticketCode);
     }
 
     const { data } = await supabase

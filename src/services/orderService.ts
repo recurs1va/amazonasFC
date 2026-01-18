@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { localStorageService } from './localStorageService';
 import { Order, Customer, OrderItem } from '../types';
 
 /**
@@ -9,8 +10,8 @@ export class OrderService {
    * Busca todos os pedidos com relacionamentos
    */
   async getAll(): Promise<Order[]> {
-    if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado');
+    if (!isSupabaseConfigured || !supabase) {
+      return localStorageService.getOrders();
     }
 
     const { data, error } = await supabase
@@ -26,8 +27,8 @@ export class OrderService {
    * Busca pedidos por evento
    */
   async getByEvent(eventId: number): Promise<Order[]> {
-    if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado');
+    if (!isSupabaseConfigured || !supabase) {
+      return localStorageService.getOrdersByEvent(eventId);
     }
 
     const { data, error } = await supabase
@@ -48,8 +49,8 @@ export class OrderService {
     order: Omit<Order, 'id' | 'created_at' | 'customer_id'>,
     items: OrderItem[]
   ): Promise<Order> {
-    if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado');
+    if (!isSupabaseConfigured || !supabase) {
+      return localStorageService.addOrder(customer, order, items);
     }
 
     // 1. Criar cliente

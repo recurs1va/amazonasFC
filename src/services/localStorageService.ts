@@ -115,6 +115,52 @@ export class LocalStorageService {
     this.save(STORAGE_KEYS.CUSTOMERS, customers);
   }
 
+  /**
+   * Busca cliente pelo CPF (remove formatação para comparar)
+   */
+  findCustomerByCpf(cpf: string): any | null {
+    const cleanCpf = cpf.replace(/\D/g, '');
+    const customers = this.getCustomers();
+    return customers.find((c: any) => c.cpf.replace(/\D/g, '') === cleanCpf) || null;
+  }
+
+  /**
+   * Busca ou cria cliente - retorna existente se CPF já cadastrado
+   */
+  findOrCreateCustomer(customerData: any): { customer: any; isExisting: boolean } {
+    // Limpar CPF (remover formatação) antes de salvar
+    const cleanCustomerData = {
+      ...customerData,
+      cpf: customerData.cpf.replace(/\D/g, '')
+    };
+
+    const existingCustomer = this.findCustomerByCpf(cleanCustomerData.cpf);
+    
+    if (existingCustomer) {
+      // Atualiza dados do cliente existente se necessário
+      const updatedCustomer = {
+        ...existingCustomer,
+        name: cleanCustomerData.name || existingCustomer.name,
+        phone: cleanCustomerData.phone || existingCustomer.phone,
+        email: cleanCustomerData.email || existingCustomer.email
+      };
+      this.updateCustomer(existingCustomer.id, updatedCustomer);
+      return { customer: updatedCustomer, isExisting: true };
+    }
+    
+    const newCustomer = this.addCustomer(cleanCustomerData);
+    return { customer: newCustomer, isExisting: false };
+  }
+
+  updateCustomer(id: number, customer: any): any {
+    const customers = this.getCustomers();
+    const updatedCustomers = customers.map((c: any) => 
+      Number(c.id) === Number(id) ? { ...c, ...customer } : c
+    );
+    this.saveCustomers(updatedCustomers);
+    return updatedCustomers.find((c: any) => Number(c.id) === Number(id));
+  }
+
   addCustomer(customer: any): any {
     const customers = this.getCustomers();
     const newId = Math.max(...customers.map((c: any) => c.id), 0) + 1;
@@ -133,8 +179,8 @@ export class LocalStorageService {
   }
 
   addOrder(customerData: any, order: any, items: any[]): any {
-    // Criar cliente
-    const customer = this.addCustomer(customerData);
+    // Buscar cliente existente ou criar novo
+    const { customer } = this.findOrCreateCustomer(customerData);
 
     // Criar pedido
     const orders = this.getOrders();

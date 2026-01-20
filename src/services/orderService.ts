@@ -42,6 +42,71 @@ export class OrderService {
   }
 
   /**
+   * Busca cliente pelo CPF no Supabase
+   */
+  async findCustomerByCpf(cpf: string): Promise<Customer | null> {
+    if (!isSupabaseConfigured || !supabase) {
+      return localStorageService.findCustomerByCpf(cpf);
+    }
+
+    const cleanCpf = cpf.replace(/\D/g, '');
+    
+    // Busca por CPF com e sem formatação
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .or(`cpf.eq.${cpf},cpf.eq.${cleanCpf}`);
+
+    if (error) throw error;
+    return data && data.length > 0 ? data[0] : null;
+  }
+
+  /**
+   * Busca ou cria cliente - retorna existente se CPF já cadastrado
+   */
+  async findOrCreateCustomer(customerData: Customer): Promise<{ customer: Customer; isExisting: boolean }> {
+    // Limpar CPF (remover formatação) antes de salvar
+    const cleanCustomerData = {
+      ...customerData,
+      cpf: customerData.cpf.replace(/\D/g, '')
+    };
+
+    if (!isSupabaseConfigured || !supabase) {
+      return localStorageService.findOrCreateCustomer(cleanCustomerData);
+    }
+
+    // Verificar se cliente já existe pelo CPF
+    const existingCustomer = await this.findCustomerByCpf(cleanCustomerData.cpf);
+
+    if (existingCustomer) {
+      // Atualiza dados do cliente existente
+      const { data: updatedCustomer, error: updateError } = await supabase
+        .from('customers')
+        .update({
+          name: customerData.name || existingCustomer.name,
+          phone: customerData.phone || existingCustomer.phone,
+          email: customerData.email || existingCustomer.email
+        })
+        .eq('id', existingCustomer.id)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+      return { customer: updatedCustomer, isExisting: true };
+    }
+
+    // Criar novo cliente
+    const { data: newCustomer, error: insertError } = await supabase
+      .from('customers')
+      .insert([cleanCustomerData])
+      .select()
+      .single();
+
+    if (insertError) throw insertError;
+    return { customer: newCustomer, isExisting: false };
+  }
+
+  /**
    * Cria um novo pedido com cliente e itens
    */
   async create(
@@ -53,14 +118,8 @@ export class OrderService {
       return localStorageService.addOrder(customer, order, items);
     }
 
-    // 1. Criar cliente
-    const { data: customerData, error: customerError } = await supabase
-      .from('customers')
-      .insert([customer])
-      .select()
-      .single();
-
-    if (customerError) throw customerError;
+    // 1. Buscar cliente existente ou criar novo
+    const { customer: customerData } = await this.findOrCreateCustomer(customer);
 
     // 2. Criar pedido
     const { data: orderData, error: orderError } = await supabase

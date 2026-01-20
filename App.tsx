@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Screen, Customer } from './src/types';
+import { Screen, Customer, IssuedTicket } from './src/types';
 import { LoadingScreen, SuccessMessage } from './src/components/common';
 import { useAuth, useEvents, useTickets, useCart } from './src/hooks';
 import { 
@@ -12,7 +12,7 @@ import {
   AdminScreenFull,
   ValidationScreenFull
 } from './src/components/screens';
-import { orderService } from './src/services';
+import { orderService, validationService } from './src/services';
 
 // TELAS TEMPORÁRIAS (Remover após criar componentes de tela separados)
 import { 
@@ -30,6 +30,7 @@ const App: React.FC = () => {
   const [customerData, setCustomerData] = useState<Customer | null>(null);
   const [orderId, setOrderId] = useState('');
   const [orders, setOrders] = useState<any[]>([]);
+  const [lastIssuedTickets, setLastIssuedTickets] = useState<IssuedTicket[]>([]);
 
   // === HOOKS CUSTOMIZADOS ===
   const { user, login, logout } = useAuth();
@@ -116,7 +117,8 @@ const App: React.FC = () => {
     setOrderId(newOrderId);
 
     try {
-      const orderItems = Object.entries(cart)
+      // Preparar itens do carrinho (agrupados por tipo)
+      const cartItems = Object.entries(cart)
         .filter(([_, qty]) => (qty as number) > 0)
         .map(([ticketId, qty]) => {
           const ticket = tickets.find(t => t.id === Number(ticketId));
@@ -129,7 +131,7 @@ const App: React.FC = () => {
           };
         });
 
-      console.log('Criando pedido...', { orderItems, newOrderId });
+      console.log('Criando pedido...', { cartItems, newOrderId });
 
       const order = await orderService.create(
         customerData,
@@ -139,10 +141,13 @@ const App: React.FC = () => {
           total: getTotal(tickets),
           payment_method: paymentMethod
         },
-        orderItems
+        cartItems
       );
 
       console.log('Pedido criado com sucesso:', order);
+      
+      // Guardar os ingressos emitidos para exibir na tela de impressão
+      setLastIssuedTickets(order.issued_tickets || []);
       
       console.log('Navegando para tickets-print...');
       setScreen('tickets-print');
@@ -168,19 +173,64 @@ const App: React.FC = () => {
   };
 
   const handleValidateTicket = async (code: string, eventId: number) => {
-    // Implementar validação real depois usando validationService
-    // Por enquanto, simulação básica
-    return {
-      valid: true,
-      message: 'Ingresso validado com sucesso!',
-      ticket: {
-        customerName: 'Cliente Teste',
-        ticket_name: 'Ingresso VIP',
-        orderId: 'ORD-123456',
-        ticketId: 1,
-        unit_price: 100.00
+    try {
+      // Buscar detalhes do ingresso pelo código
+      const ticketDetails = await validationService.getTicketDetails(code);
+      
+      if (!ticketDetails) {
+        return {
+          valid: false,
+          message: 'Ingresso não encontrado. Verifique o código e tente novamente.'
+        };
       }
-    };
+
+      // Verificar se o ingresso é do evento correto
+      if (ticketDetails.event_id !== eventId) {
+        return {
+          valid: false,
+          message: 'Este ingresso não é válido para este evento.'
+        };
+      }
+
+      // Verificar se já foi validado
+      if (ticketDetails.validated_at) {
+        return {
+          valid: false,
+          message: 'Este ingresso já foi validado anteriormente!'
+        };
+      }
+
+      // Validar o ingresso (marca validated_at)
+      const validatedTicket = await validationService.validate(code);
+
+      return {
+        valid: true,
+        message: 'Ingresso validado com sucesso!',
+        ticket: {
+          customerName: validatedTicket.customer_name || 'N/A',
+          ticket_name: validatedTicket.ticket_name,
+          orderId: validatedTicket.order_id,
+          ticketId: validatedTicket.ticket_id,
+          unit_price: validatedTicket.unit_price
+        }
+      };
+    } catch (error) {
+      console.error('Erro na validação:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      
+      // Se o erro for de ingresso já validado, retornar mensagem apropriada
+      if (errorMessage.includes('já foi validado')) {
+        return {
+          valid: false,
+          message: 'Este ingresso já foi validado anteriormente!'
+        };
+      }
+      
+      return {
+        valid: false,
+        message: `Erro ao validar: ${errorMessage}`
+      };
+    }
   };
 
   // === RENDERIZAÇÃO ===
@@ -264,15 +314,8 @@ const App: React.FC = () => {
       {screen === 'tickets-print' && customerData && selectedEventId && (
         <TicketsPrintScreen
           orderId={orderId}
-          eventId={selectedEventId}
           event={events.find(e => e.id === selectedEventId)}
-          cartItems={Object.entries(cart)
-            .filter(([_, qty]) => (qty as number) > 0)
-            .map(([ticketId, qty]) => ({
-              ticketId: Number(ticketId),
-              quantity: qty as number
-            }))}
-          tickets={tickets}
+          issuedTickets={lastIssuedTickets}
           customerName={customerData.name}
           customerEmail={customerData.email}
           customerCpf={customerData.cpf}

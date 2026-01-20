@@ -1,6 +1,17 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 import { localStorageService } from './localStorageService';
-import { Order, Customer, OrderItem } from '../types';
+import { Order, Customer, IssuedTicket } from '../types';
+import { generateTicketCode } from './issuedTicketService';
+
+/**
+ * Item do carrinho para criar pedido
+ */
+export interface CartItem {
+  ticket_id: number;
+  ticket_name: string;
+  quantity: number;
+  unit_price: number;
+}
 
 /**
  * Serviço para gerenciamento de pedidos
@@ -11,12 +22,17 @@ export class OrderService {
    */
   async getAll(): Promise<Order[]> {
     if (!isSupabaseConfigured || !supabase) {
-      return localStorageService.getOrders();
+      const orders = localStorageService.getOrders();
+      // Adicionar issued_tickets para cada pedido
+      return orders.map((order: any) => ({
+        ...order,
+        issued_tickets: localStorageService.getIssuedTicketsByOrder(order.order_id)
+      }));
     }
 
     const { data, error } = await supabase
       .from('orders')
-      .select('*, customers(*), events(*), order_items(*)')
+      .select('*, customers(*), events(*), issued_tickets(*)')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -28,12 +44,16 @@ export class OrderService {
    */
   async getByEvent(eventId: number): Promise<Order[]> {
     if (!isSupabaseConfigured || !supabase) {
-      return localStorageService.getOrdersByEvent(eventId);
+      const orders = localStorageService.getOrdersByEvent(eventId);
+      return orders.map((order: any) => ({
+        ...order,
+        issued_tickets: localStorageService.getIssuedTicketsByOrder(order.order_id)
+      }));
     }
 
     const { data, error } = await supabase
       .from('orders')
-      .select('*, customers(*), events(*), order_items(*)')
+      .select('*, customers(*), events(*), issued_tickets(*)')
       .eq('event_id', eventId)
       .order('created_at', { ascending: false });
 
@@ -107,45 +127,85 @@ export class OrderService {
   }
 
   /**
-   * Cria um novo pedido com cliente e itens
+   * Cria um novo pedido com cliente e ingressos individuais
    */
   async create(
     customer: Customer,
     order: Omit<Order, 'id' | 'created_at' | 'customer_id'>,
-    items: OrderItem[]
+    cartItems: CartItem[]
   ): Promise<Order> {
-    if (!isSupabaseConfigured || !supabase) {
-      return localStorageService.addOrder(customer, order, items);
-    }
-
     // 1. Buscar cliente existente ou criar novo
     const { customer: customerData } = await this.findOrCreateCustomer(customer);
 
-    // 2. Criar pedido
+    // 2. Gerar ingressos individuais a partir do carrinho
+    const issuedTickets: Omit<IssuedTicket, 'id' | 'created_at'>[] = [];
+    let ticketIndex = 0;
+    
+    for (const item of cartItems) {
+      for (let i = 0; i < item.quantity; i++) {
+        issuedTickets.push({
+          order_id: order.order_id,
+          event_id: order.event_id,
+          ticket_id: item.ticket_id,
+          ticket_code: generateTicketCode(order.order_id, ticketIndex),
+          ticket_name: item.ticket_name,
+          unit_price: item.unit_price,
+          customer_id: customerData.id,
+          customer_name: customerData.name,
+          validated_at: null
+        });
+        ticketIndex++;
+      }
+    }
+
+    if (!isSupabaseConfigured || !supabase) {
+      // Modo localStorage
+      const orders = localStorageService.getOrders();
+      const newOrder = {
+        ...order,
+        customer_id: customerData.id,
+        created_at: new Date().toISOString(),
+        customers: customerData,
+        events: localStorageService.getEvents().find((e: any) => e.id === order.event_id)
+      };
+      localStorageService.saveOrders([...orders, newOrder]);
+      
+      // Salvar ingressos individuais
+      const savedTickets = localStorageService.addIssuedTickets(issuedTickets);
+      
+      return {
+        ...newOrder,
+        issued_tickets: savedTickets
+      };
+    }
+
+    // 3. Criar pedido no Supabase
     const { data: orderData, error: orderError } = await supabase
       .from('orders')
-      .insert([{ ...order, customer_id: customerData.id }])
+      .insert([{ 
+        order_id: order.order_id,
+        customer_id: customerData.id,
+        event_id: order.event_id,
+        total: order.total,
+        payment_method: order.payment_method
+      }])
       .select()
       .single();
 
     if (orderError) throw orderError;
 
-    // 3. Criar itens do pedido
-    const itemsWithOrderId = items.map(item => ({
-      ...item,
-      order_id: orderData.id
-    }));
+    // 4. Criar ingressos individuais no Supabase
+    const { data: ticketsData, error: ticketsError } = await supabase
+      .from('issued_tickets')
+      .insert(issuedTickets)
+      .select();
 
-    const { error: itemsError } = await supabase
-      .from('order_items')
-      .insert(itemsWithOrderId);
+    if (ticketsError) throw ticketsError;
 
-    if (itemsError) throw itemsError;
-
-    // 4. Retornar pedido completo
+    // 5. Retornar pedido completo
     const { data: fullOrder, error: fullOrderError } = await supabase
       .from('orders')
-      .select('*, customers(*), events(*), order_items(*)')
+      .select('*, customers(*), events(*), issued_tickets(*)')
       .eq('id', orderData.id)
       .single();
 

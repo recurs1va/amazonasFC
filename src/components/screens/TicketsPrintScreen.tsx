@@ -1,21 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Download, Printer, Home, ArrowRight } from 'lucide-react';
 import { Button } from '../common';
-import { generateTicketCode } from '../../utils/ticketCode';
-import { Event, Ticket } from '../../types';
-
-interface CartItem {
-  ticketId: number;
-  quantity: number;
-}
+import { Event, IssuedTicket } from '../../types';
 
 interface TicketsPrintScreenProps {
   orderId: string;
-  eventId: number;
   event: Event | undefined;
-  cartItems: CartItem[];
-  tickets: Ticket[];
+  issuedTickets: IssuedTicket[];
   customerName: string;
   customerEmail: string;
   customerCpf: string;
@@ -23,53 +15,16 @@ interface TicketsPrintScreenProps {
   onGoHome: () => void;
 }
 
-interface GeneratedTicket {
-  code: string;
-  ticketId: number;
-  ticketName: string;
-  price: number;
-  itemIndex: number;
-}
-
 export const TicketsPrintScreen: React.FC<TicketsPrintScreenProps> = ({
   orderId,
-  eventId,
   event,
-  cartItems,
-  tickets,
+  issuedTickets,
   customerName,
   customerEmail,
   customerCpf,
   total,
   onGoHome
 }) => {
-  const [generatedTickets, setGeneratedTickets] = useState<GeneratedTicket[]>([]);
-
-  useEffect(() => {
-    // Gerar tickets com códigos únicos
-    const newTickets: GeneratedTicket[] = [];
-    let itemIndex = 1;
-
-    cartItems.forEach(({ ticketId, quantity }) => {
-      const ticket = tickets.find(t => t.id === ticketId);
-      if (!ticket) return;
-
-      for (let i = 0; i < quantity; i++) {
-        const code = generateTicketCode(orderId, eventId, ticketId, itemIndex);
-        newTickets.push({
-          code,
-          ticketId: ticket.id,
-          ticketName: ticket.name,
-          price: ticket.price,
-          itemIndex
-        });
-        itemIndex++;
-      }
-    });
-
-    setGeneratedTickets(newTickets);
-  }, [orderId, eventId, cartItems, tickets]);
-
   const handlePrint = () => {
     window.print();
   };
@@ -88,7 +43,7 @@ export const TicketsPrintScreen: React.FC<TicketsPrintScreenProps> = ({
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Seus Ingressos</h1>
               <p className="text-sm text-gray-500">
-                {generatedTickets.length} {generatedTickets.length === 1 ? 'ingresso' : 'ingressos'} • Pedido #{orderId}
+                {issuedTickets.length} {issuedTickets.length === 1 ? 'ingresso' : 'ingressos'} • Pedido #{orderId}
               </p>
             </div>
             <div className="flex gap-3">
@@ -130,9 +85,9 @@ export const TicketsPrintScreen: React.FC<TicketsPrintScreenProps> = ({
 
         {/* Ingressos Individuais */}
         <div className="space-y-6">
-          {generatedTickets.map((ticket, index) => (
+          {issuedTickets.map((ticket, index) => (
             <div 
-              key={ticket.code} 
+              key={ticket.ticket_code} 
               className="bg-white rounded-xl shadow-sm border-2 border-gray-200 overflow-hidden page-break"
             >
               {/* Topo do Ticket */}
@@ -143,8 +98,8 @@ export const TicketsPrintScreen: React.FC<TicketsPrintScreenProps> = ({
                     <p className="text-sm opacity-90">{event?.location || ''}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm opacity-90">Ingresso {index + 1} de {generatedTickets.length}</p>
-                    <p className="text-xs opacity-75">{new Date(event?.date || '').toLocaleDateString('pt-BR')}</p>
+                    <p className="text-sm opacity-90">Ingresso {index + 1} de {issuedTickets.length}</p>
+                    <p className="text-xs opacity-75">{event?.date || ''}</p>
                   </div>
                 </div>
               </div>
@@ -156,22 +111,22 @@ export const TicketsPrintScreen: React.FC<TicketsPrintScreenProps> = ({
                   <div className="flex-shrink-0">
                     <div className="bg-white p-3 border-2 border-gray-300 rounded-lg">
                       <QRCodeSVG 
-                        value={ticket.code} 
+                        value={ticket.ticket_code} 
                         size={150}
                         level="H"
                         includeMargin={false}
                       />
                     </div>
                     <p className="text-xs text-center mt-2 text-gray-500 font-mono">
-                      {ticket.code}
+                      {ticket.ticket_code}
                     </p>
                   </div>
 
                   {/* Informações do Ticket */}
                   <div className="flex-1">
                     <div className="mb-4">
-                      <h3 className="text-2xl font-bold text-gray-900 mb-2">{ticket.ticketName}</h3>
-                      <p className="text-lg text-green-600 font-bold">R$ {ticket.price.toFixed(2)}</p>
+                      <h3 className="text-2xl font-bold text-gray-900 mb-2">{ticket.ticket_name}</h3>
+                      <p className="text-lg text-green-600 font-bold">R$ {ticket.unit_price.toFixed(2)}</p>
                     </div>
 
                     <div className="space-y-3 text-sm">
@@ -179,7 +134,7 @@ export const TicketsPrintScreen: React.FC<TicketsPrintScreenProps> = ({
                         <ArrowRight size={16} className="text-yellow-500 mt-0.5 flex-shrink-0" />
                         <div>
                           <p className="font-semibold text-gray-700">Nome do Titular</p>
-                          <p className="text-gray-600">{customerName}</p>
+                          <p className="text-gray-600">{ticket.customer_name || customerName}</p>
                         </div>
                       </div>
 
@@ -194,15 +149,8 @@ export const TicketsPrintScreen: React.FC<TicketsPrintScreenProps> = ({
                       <div className="flex items-start gap-2">
                         <ArrowRight size={16} className="text-yellow-500 mt-0.5 flex-shrink-0" />
                         <div>
-                          <p className="font-semibold text-gray-700">Data e Horário</p>
-                          <p className="text-gray-600">
-                            {new Date(event?.date || '').toLocaleDateString('pt-BR', {
-                              weekday: 'long',
-                              year: 'numeric',
-                              month: 'long',
-                              day: 'numeric'
-                            })}
-                          </p>
+                          <p className="font-semibold text-gray-700">Data do Evento</p>
+                          <p className="text-gray-600">{event?.date || ''}</p>
                         </div>
                       </div>
 

@@ -25,6 +25,27 @@ export interface Customer {
   cpf: string;
 }
 
+/**
+ * Ingresso emitido individualmente
+ * Cada compra gera N registros (1 por ingresso)
+ */
+export interface IssuedTicket {
+  id?: number;
+  order_id: string;
+  event_id: number;
+  ticket_id: number;
+  ticket_code: string;        // Código único (TKT-XXX-XXXX-X)
+  ticket_name: string;
+  unit_price: number;
+  customer_id?: number;
+  customer_name?: string;
+  validated_at?: string | null;  // NULL = não validado
+  created_at?: string;
+}
+
+/**
+ * @deprecated Use IssuedTicket instead
+ */
 export interface OrderItem {
   id?: number;
   order_id?: number;
@@ -44,7 +65,8 @@ export interface Order {
   created_at?: string;
   customers?: Customer;
   events?: Event;
-  order_items?: OrderItem[];
+  issued_tickets?: IssuedTicket[];  // Novo: ingressos individuais
+  order_items?: OrderItem[];        // @deprecated - manter para compatibilidade
 }
 
 export interface Database {
@@ -70,6 +92,11 @@ export interface Database {
         Insert: Omit<Order, 'id' | 'created_at'>;
         Update: Partial<Omit<Order, 'id' | 'created_at'>>;
       };
+      issued_tickets: {
+        Row: IssuedTicket;
+        Insert: Omit<IssuedTicket, 'id' | 'created_at'>;
+        Update: Partial<IssuedTicket>;
+      };
       order_items: {
         Row: OrderItem;
         Insert: Omit<OrderItem, 'id'>;
@@ -84,6 +111,9 @@ export interface Database {
   };
 }
 
+/**
+ * @deprecated Use IssuedTicket with validated_at field instead
+ */
 export interface ValidatedTicket {
   id?: number;
   ticket_code: string;

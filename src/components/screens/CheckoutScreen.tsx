@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 import { Button, Input } from '../common';
 import { Customer } from '../../types';
+import { orderService } from '../../services';
 
 interface CheckoutScreenProps {
   cart: Record<number, number>;
@@ -24,6 +25,60 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
     email: '',
     cpf: ''
   });
+  const [isExistingCustomer, setIsExistingCustomer] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // Formata CPF enquanto digita
+  const formatCpf = (value: string): string => {
+    const cleaned = value.replace(/\D/g, '');
+    const match = cleaned.match(/^(\d{3})(\d{3})(\d{3})(\d{2})$/);
+    if (match) {
+      return `${match[1]}.${match[2]}.${match[3]}-${match[4]}`;
+    }
+    return cleaned
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+  };
+
+  // Busca cliente pelo CPF quando tiver 11 dígitos
+  const searchCustomerByCpf = useCallback(async (cpf: string) => {
+    const cleanCpf = cpf.replace(/\D/g, '');
+    
+    if (cleanCpf.length === 11) {
+      setIsSearching(true);
+      try {
+        const existingCustomer = await orderService.findCustomerByCpf(cleanCpf);
+        
+        if (existingCustomer) {
+          setFormData({
+            cpf: formatCpf(existingCustomer.cpf),
+            name: existingCustomer.name || '',
+            email: existingCustomer.email || '',
+            phone: existingCustomer.phone || ''
+          });
+          setIsExistingCustomer(true);
+        } else {
+          setIsExistingCustomer(false);
+        }
+      } catch (error) {
+        console.error('Erro ao buscar cliente:', error);
+        setIsExistingCustomer(false);
+      } finally {
+        setIsSearching(false);
+      }
+    } else {
+      setIsExistingCustomer(false);
+    }
+  }, []);
+
+  const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatCpf(e.target.value);
+    setFormData(prev => ({ ...prev, cpf: formatted }));
+    
+    // Busca cliente quando CPF estiver completo
+    searchCustomerByCpf(e.target.value);
+  };
 
   const handleChange = (field: keyof Customer) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({ ...prev, [field]: e.target.value }));
@@ -52,18 +107,33 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
             <div className="bg-white p-8 rounded-2xl border-2 border-gray-200">
               <h2 className="text-2xl font-bold mb-6">Dados do Comprador</h2>
               <form onSubmit={handleSubmit} className="space-y-4">
+                {/* CPF como primeiro campo */}
+                <div className="relative">
+                  <Input
+                    label="CPF"
+                    value={formData.cpf}
+                    onChange={handleCpfChange}
+                    placeholder="000.000.000-00"
+                    maxLength={14}
+                    required
+                  />
+                  {isSearching && (
+                    <div className="absolute right-3 top-9">
+                      <Loader2 size={20} className="animate-spin text-yellow-500" />
+                    </div>
+                  )}
+                  {isExistingCustomer && !isSearching && (
+                    <div className="flex items-center gap-2 mt-1 text-green-600 text-sm">
+                      <CheckCircle size={16} />
+                      <span>Cliente encontrado! Dados carregados.</span>
+                    </div>
+                  )}
+                </div>
                 <Input
                   label="Nome Completo"
                   value={formData.name}
                   onChange={handleChange('name')}
                   placeholder="Digite seu nome completo"
-                  required
-                />
-                <Input
-                  label="CPF"
-                  value={formData.cpf}
-                  onChange={handleChange('cpf')}
-                  placeholder="000.000.000-00"
                   required
                 />
                 <Input

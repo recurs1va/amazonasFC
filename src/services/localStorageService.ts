@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   ORDERS: 'amazonasFC_orders',
   CUSTOMERS: 'amazonasFC_customers',
   VALIDATED_TICKETS: 'amazonasFC_validated_tickets',
+  ISSUED_TICKETS: 'amazonasFC_issued_tickets',
 };
 
 export class LocalStorageService {
@@ -234,6 +235,63 @@ export class LocalStorageService {
   isTicketValidated(ticketCode: string): boolean {
     const validatedTickets = this.getValidatedTickets();
     return validatedTickets.some((v: any) => v.ticket_code === ticketCode);
+  }
+
+  // ==========================================
+  // ISSUED TICKETS (Ingressos Individuais)
+  // ==========================================
+
+  getIssuedTickets(): any[] {
+    return this.load(STORAGE_KEYS.ISSUED_TICKETS, []);
+  }
+
+  saveIssuedTickets(tickets: any[]): void {
+    this.save(STORAGE_KEYS.ISSUED_TICKETS, tickets);
+  }
+
+  getIssuedTicketsByOrder(orderId: string): any[] {
+    return this.getIssuedTickets().filter((t: any) => t.order_id === orderId);
+  }
+
+  getIssuedTicketsByEvent(eventId: number): any[] {
+    return this.getIssuedTickets().filter((t: any) => t.event_id === eventId);
+  }
+
+  getIssuedTicketByCode(ticketCode: string): any | null {
+    return this.getIssuedTickets().find((t: any) => t.ticket_code === ticketCode) || null;
+  }
+
+  addIssuedTickets(tickets: any[]): any[] {
+    const existingTickets = this.getIssuedTickets();
+    const newTickets = tickets.map((t, index) => ({
+      ...t,
+      id: Math.max(...existingTickets.map((et: any) => et.id || 0), 0) + index + 1,
+      created_at: new Date().toISOString(),
+    }));
+    this.saveIssuedTickets([...existingTickets, ...newTickets]);
+    return newTickets;
+  }
+
+  validateIssuedTicket(ticketCode: string): any {
+    const tickets = this.getIssuedTickets();
+    const ticketIndex = tickets.findIndex((t: any) => t.ticket_code === ticketCode);
+    
+    if (ticketIndex === -1) {
+      throw new Error('Ingresso não encontrado');
+    }
+    
+    if (tickets[ticketIndex].validated_at) {
+      throw new Error('Ingresso já foi validado anteriormente');
+    }
+    
+    tickets[ticketIndex].validated_at = new Date().toISOString();
+    this.saveIssuedTickets(tickets);
+    return tickets[ticketIndex];
+  }
+
+  isIssuedTicketValidated(ticketCode: string): boolean {
+    const ticket = this.getIssuedTicketByCode(ticketCode);
+    return ticket?.validated_at !== null && ticket?.validated_at !== undefined;
   }
 
   // LIMPAR DADOS

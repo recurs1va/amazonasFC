@@ -6,3 +6,5 @@ export { issuedTicketService, generateTicketCode } from './issuedTicketService';
 export { validationService } from './validationService';
 export { supabase, isSupabaseConfigured } from './supabaseClient';
 export { localStorageService } from './localStorageService';
+export { authService } from './authService';
+export type { AuthUser, SignUpData, SignInData, AuthResponse } from './authService';

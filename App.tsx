@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Screen, Customer, IssuedTicket } from './src/types';
 import { LoadingScreen, SuccessMessage } from './src/components/common';
 import { useAuth, useEvents, useTickets, useCart } from './src/hooks';
+import type { RegisterData } from './src/hooks/useAuth';
 import { 
   CheckoutScreen,
   PaymentScreen,
@@ -24,8 +25,10 @@ import {
 
 const App: React.FC = () => {
   // === ESTADOS PRINCIPAIS ===
-  const [screen, setScreen] = useState<Screen>('login');
+  const [screen, setScreen] = useState<Screen>('events-list');
+  const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login'); // Controlar login vs registro
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
+  const [pendingCheckout, setPendingCheckout] = useState(false); // Para redirecionar após login
   const [successMsg, setSuccessMsg] = useState('');
   const [customerData, setCustomerData] = useState<Customer | null>(null);
   const [orderId, setOrderId] = useState('');
@@ -33,7 +36,7 @@ const App: React.FC = () => {
   const [lastIssuedTickets, setLastIssuedTickets] = useState<IssuedTicket[]>([]);
 
   // === HOOKS CUSTOMIZADOS ===
-  const { user, login, logout } = useAuth();
+  const { user, customerData: authCustomerData, loading: authLoading, login, register, logout } = useAuth();
   const { events, loading: eventsLoading, loadEvents } = useEvents();
   const { tickets, loadTickets } = useTickets();
   const { cart, addToCart, removeFromCart, clearCart, getTotal } = useCart();
@@ -44,20 +47,60 @@ const App: React.FC = () => {
     setTimeout(() => setSuccessMsg(''), 3000);
   };
 
-  const handleLoginClick = (email: string, password: string) => {
-    login(email, password);
-    if (email === 'admin@admin.com') {
-      setScreen('admin');
-      loadOrders();
+  const handleLoginClick = async (email: string, password: string) => {
+    const result = await login(email, password);
+    if (result.success) {
+      if (email === 'admin@admin.com') {
+        setScreen('admin');
+        loadOrders();
+        setPendingCheckout(false);
+      } else {
+        // Se havia checkout pendente, ir para o checkout
+        if (pendingCheckout) {
+          setScreen('customer');
+          setPendingCheckout(false);
+        } else {
+          setScreen('events-list');
+        }
+      }
     } else {
-      setScreen('events-list');
+      handleShowSuccess(result.message);
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    setScreen('login');
+  const handleRegisterClick = async (data: RegisterData) => {
+    const result = await register(data);
+    if (result.success) {
+      handleShowSuccess(result.message);
+      // Após cadastro, já está logado, então ir para eventos ou checkout
+      if (pendingCheckout) {
+        setScreen('customer');
+        setPendingCheckout(false);
+      } else {
+        setScreen('events-list');
+      }
+    } else {
+      handleShowSuccess(result.message);
+    }
+  };
+
+  // Função para tentar fazer checkout (verifica se está logado)
+  const handleTryCheckout = () => {
+    if (user) {
+      // Usuário logado, pode prosseguir
+      setScreen('customer');
+    } else {
+      // Não logado, redirecionar para login
+      setPendingCheckout(true);
+      setScreen('login');
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    setScreen('events-list');
     clearCart();
+    setPendingCheckout(false);
   };
 
   const loadOrders = async () => {
@@ -234,7 +277,7 @@ const App: React.FC = () => {
   };
 
   // === RENDERIZAÇÃO ===
-  if (eventsLoading && screen === 'login') return <LoadingScreen />;
+  if (authLoading || (eventsLoading && screen === 'events-list')) return <LoadingScreen />;
 
   console.log('Render:', { screen, customerData: !!customerData, selectedEventId, orderId });
 
@@ -244,8 +287,28 @@ const App: React.FC = () => {
       {successMsg && <SuccessMessage message={successMsg} />}
 
       {/* TELA DE LOGIN (Temporária - substituir por LoginScreen) */}
-      {screen === 'login' && (
-        <LoginScreenTemp onLogin={handleLoginClick} />
+      {screen === 'login' && authScreen === 'login' && (
+        <LoginScreenTemp 
+          onLogin={handleLoginClick} 
+          onBack={() => {
+            setPendingCheckout(false);
+            setScreen('events-list');
+          }}
+          onGoToRegister={() => setAuthScreen('register')}
+          showBackButton={true}
+        />
+      )}
+
+      {/* TELA DE CADASTRO (Temporária - substituir por RegisterScreen) */}
+      {screen === 'login' && authScreen === 'register' && (
+        <RegisterScreenTemp 
+          onRegister={handleRegisterClick} 
+          onBack={() => {
+            setPendingCheckout(false);
+            setScreen('events-list');
+          }}
+          onGoToLogin={() => setAuthScreen('login')}
+        />
       )}
 
       {/* LISTA DE EVENTOS (Temporária - substituir por EventsListScreen) */}
@@ -254,6 +317,8 @@ const App: React.FC = () => {
           events={events}
           onSelectEvent={(id) => { setSelectedEventId(id); setScreen('tickets'); }}
           onLogout={handleLogout}
+          onLogin={() => setScreen('login')}
+          user={user}
         />
       )}
 
@@ -266,7 +331,7 @@ const App: React.FC = () => {
           onAddToCart={addToCart}
           onRemoveFromCart={removeFromCart}
           onBack={() => setScreen('events-list')}
-          onCheckout={() => setScreen('customer')}
+          onCheckout={handleTryCheckout}
           cartTotal={getTotal(tickets)}
         />
       )}
@@ -279,6 +344,7 @@ const App: React.FC = () => {
           total={getTotal(tickets)}
           onBack={() => setScreen('tickets')}
           onSubmit={handleCheckoutSubmit}
+          initialCustomerData={authCustomerData}
         />
       )}
 
@@ -370,19 +436,31 @@ const App: React.FC = () => {
 // Tela de Login Temporária
 interface LoginScreenTempProps {
   onLogin: (email: string, password: string) => void;
+  onBack?: () => void;
+  onGoToRegister?: () => void;
+  showBackButton?: boolean;
 }
 
-const LoginScreenTemp: React.FC<LoginScreenTempProps> = ({ onLogin }) => {
+const LoginScreenTemp: React.FC<LoginScreenTempProps> = ({ onLogin, onBack, onGoToRegister, showBackButton = true }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-4">
       <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md border-4 border-yellow-400">
-        <h1 className="text-3xl font-bold text-center mb-8 flex items-center justify-center gap-2 text-black">
+        {showBackButton && onBack && (
+          <button 
+            onClick={onBack}
+            className="flex items-center gap-2 text-gray-600 hover:text-black mb-4 transition"
+          >
+            <ArrowLeft size={18} /> Voltar aos eventos
+          </button>
+        )}
+        <h1 className="text-3xl font-bold text-center mb-2 flex items-center justify-center gap-2 text-black">
           <TicketIcon size={32} className="text-yellow-500" /> 
           Ingressos Amazonas FC
         </h1>
+        <p className="text-center text-gray-600 text-sm mb-8">Entre com sua conta</p>
         <div className="space-y-4">
           <input
             type="email"
@@ -404,7 +482,21 @@ const LoginScreenTemp: React.FC<LoginScreenTempProps> = ({ onLogin }) => {
           >
             Entrar
           </button>
-          <p className="text-xs text-center text-gray-400">admin@admin.com / admin</p>
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">ou</span>
+            </div>
+          </div>
+          <button 
+            onClick={onGoToRegister}
+            className="w-full bg-black text-yellow-400 py-3 rounded-xl font-bold hover:bg-gray-900 transition border-2 border-black"
+          >
+            Criar uma conta
+          </button>
+          <p className="text-xs text-center text-gray-400 mt-4">Demo: admin@admin.com / admin</p>
         </div>
       </div>
     </div>
@@ -416,12 +508,16 @@ interface EventsListScreenTempProps {
   events: any[];
   onSelectEvent: (id: number) => void;
   onLogout: () => void;
+  onLogin: () => void;
+  user: { name: string; isAdmin: boolean } | null;
 }
 
 const EventsListScreenTemp: React.FC<EventsListScreenTempProps> = ({ 
   events, 
   onSelectEvent, 
-  onLogout 
+  onLogout,
+  onLogin,
+  user
 }) => {
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -429,12 +525,27 @@ const EventsListScreenTemp: React.FC<EventsListScreenTempProps> = ({
         <h2 className="font-bold text-yellow-400 flex items-center gap-2">
           <TicketIcon size={20} /> Eventos
         </h2>
-        <button 
-          onClick={onLogout} 
-          className="text-white hover:text-yellow-400 transition"
-        >
-          <LogOut size={20} />
-        </button>
+        <div className="flex items-center gap-4">
+          {user ? (
+            <>
+              <span className="text-white text-sm">Olá, {user.name}</span>
+              <button 
+                onClick={onLogout} 
+                className="text-white hover:text-yellow-400 transition"
+                title="Sair"
+              >
+                <LogOut size={20} />
+              </button>
+            </>
+          ) : (
+            <button 
+              onClick={onLogin} 
+              className="bg-yellow-400 text-black px-4 py-1.5 rounded-lg font-bold text-sm hover:bg-yellow-500 transition"
+            >
+              Entrar
+            </button>
+          )}
+        </div>
       </header>
       <main className="max-w-6xl mx-auto p-6 grid md:grid-cols-3 gap-6">
         {events.map(ev => (
@@ -533,6 +644,123 @@ const EventDetailScreenTemp: React.FC<EventDetailScreenTempProps> = ({
             disabled={cartTotal === 0}
           >
             Finalizar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Tela de Cadastro Temporária
+interface RegisterScreenTempProps {
+  onRegister: (data: RegisterData) => void;
+  onBack?: () => void;
+  onGoToLogin?: () => void;
+}
+
+const RegisterScreenTemp: React.FC<RegisterScreenTempProps> = ({ onRegister, onBack, onGoToLogin }) => {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    cpf: '',
+    phone: '',
+    password: '',
+    confirmPassword: ''
+  });
+
+  const handleRegister = () => {
+    onRegister({
+      name: formData.name,
+      email: formData.email,
+      cpf: formData.cpf,
+      phone: formData.phone,
+      password: formData.password,
+      confirmPassword: formData.confirmPassword
+    });
+    // Limpar formulário após registrar
+    setFormData({ name: '', email: '', cpf: '', phone: '', password: '', confirmPassword: '' });
+  };
+
+  return (
+    <div className="min-h-screen bg-black flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md border-4 border-yellow-400">
+        {onBack && (
+          <button 
+            onClick={onBack}
+            className="flex items-center gap-2 text-gray-600 hover:text-black mb-4 transition"
+          >
+            <ArrowLeft size={18} /> Voltar aos eventos
+          </button>
+        )}
+        <h1 className="text-3xl font-bold text-center mb-2 flex items-center justify-center gap-2 text-black">
+          <TicketIcon size={32} className="text-yellow-500" /> 
+          Criar Conta
+        </h1>
+        <p className="text-center text-gray-600 text-sm mb-6">Registre-se para comprar ingressos</p>
+        <div className="space-y-3">
+          <input
+            type="text"
+            placeholder="Nome completo"
+            className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none text-sm"
+            value={formData.name}
+            onChange={e => setFormData({ ...formData, name: e.target.value })}
+          />
+          <input
+            type="email"
+            placeholder="E-mail"
+            className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none text-sm"
+            value={formData.email}
+            onChange={e => setFormData({ ...formData, email: e.target.value })}
+          />
+          <input
+            type="text"
+            placeholder="CPF"
+            className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none text-sm"
+            value={formData.cpf}
+            onChange={e => setFormData({ ...formData, cpf: e.target.value })}
+            maxLength={14}
+          />
+          <input
+            type="tel"
+            placeholder="Telefone"
+            className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none text-sm"
+            value={formData.phone}
+            onChange={e => setFormData({ ...formData, phone: e.target.value })}
+            maxLength={15}
+          />
+          <input
+            type="password"
+            placeholder="Senha (mín. 6 caracteres)"
+            className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none text-sm"
+            value={formData.password}
+            onChange={e => setFormData({ ...formData, password: e.target.value })}
+          />
+          <input
+            type="password"
+            placeholder="Confirme a senha"
+            className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-yellow-400 focus:border-yellow-400 outline-none text-sm"
+            value={formData.confirmPassword}
+            onChange={e => setFormData({ ...formData, confirmPassword: e.target.value })}
+          />
+          <button 
+            onClick={handleRegister}
+            className="w-full bg-yellow-400 text-black py-3 rounded-xl font-bold hover:bg-yellow-500 transition mt-2"
+          >
+            Criar Conta
+          </button>
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">ou</span>
+            </div>
+          </div>
+          <button 
+            onClick={onGoToLogin}
+            className="w-full bg-black text-yellow-400 py-3 rounded-xl font-bold hover:bg-gray-900 transition border-2 border-black"
+          >
+            Já tenho conta
           </button>
         </div>
       </div>

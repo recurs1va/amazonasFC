@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 import { Button, Input } from '../common';
 import { Customer } from '../../types';
@@ -10,6 +10,7 @@ interface CheckoutScreenProps {
   total: number;
   onBack: () => void;
   onSubmit: (customer: Customer) => void;
+  initialCustomerData?: Customer | null; // Dados do usuário logado
 }
 
 export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
@@ -17,7 +18,8 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
   tickets,
   total,
   onBack,
-  onSubmit
+  onSubmit,
+  initialCustomerData
 }) => {
   const [formData, setFormData] = useState<Customer>({
     name: '',
@@ -27,6 +29,21 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
   });
   const [isExistingCustomer, setIsExistingCustomer] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+
+  // Auto-preencher com dados do usuário logado
+  useEffect(() => {
+    if (initialCustomerData) {
+      setFormData({
+        name: initialCustomerData.name || '',
+        phone: initialCustomerData.phone || '',
+        email: initialCustomerData.email || '',
+        cpf: formatCpf(initialCustomerData.cpf || '')
+      });
+      if (initialCustomerData.cpf) {
+        setIsExistingCustomer(true);
+      }
+    }
+  }, [initialCustomerData]);
 
   // Formata CPF enquanto digita
   const formatCpf = (value: string): string => {

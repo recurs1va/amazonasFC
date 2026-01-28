@@ -85,6 +85,7 @@ class AuthService {
       
       const { data: insertedCustomer, error: customerError } = await supabase
         .rpc('create_customer_for_user', {
+          p_auth_user_id: authData.user.id,
           p_name: data.name,
           p_email: data.email,
           p_cpf: data.cpf.replace(/\D/g, ''),

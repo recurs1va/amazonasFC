@@ -122,7 +122,13 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
           {/* Formulário */}
           <div className="md:col-span-2">
             <div className="bg-white p-8 rounded-2xl border-2 border-gray-200">
-              <h2 className="text-2xl font-bold mb-6">Dados do Comprador</h2>
+              <h2 className="text-2xl font-bold mb-2">Confirme seus Dados</h2>
+              {initialCustomerData && (
+                <p className="text-sm text-green-600 mb-6 flex items-center gap-2">
+                  <CheckCircle size={16} />
+                  Seus dados foram carregados automaticamente. Verifique e prossiga.
+                </p>
+              )}
               <form onSubmit={handleSubmit} className="space-y-4">
                 {/* CPF como primeiro campo */}
                 <div className="relative">
@@ -133,13 +139,14 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
                     placeholder="000.000.000-00"
                     maxLength={14}
                     required
+                    disabled={!!initialCustomerData?.cpf} // Desabilitar se já tem CPF
                   />
                   {isSearching && (
                     <div className="absolute right-3 top-9">
                       <Loader2 size={20} className="animate-spin text-yellow-500" />
                     </div>
                   )}
-                  {isExistingCustomer && !isSearching && (
+                  {isExistingCustomer && !isSearching && !initialCustomerData && (
                     <div className="flex items-center gap-2 mt-1 text-green-600 text-sm">
                       <CheckCircle size={16} />
                       <span>Cliente encontrado! Dados carregados.</span>

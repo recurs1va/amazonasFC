@@ -30,16 +30,20 @@ const App: React.FC = () => {
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [pendingCheckout, setPendingCheckout] = useState(false); // Para redirecionar após login
   const [successMsg, setSuccessMsg] = useState('');
-  const [customerData, setCustomerData] = useState<Customer | null>(null);
   const [orderId, setOrderId] = useState('');
   const [orders, setOrders] = useState<any[]>([]);
   const [lastIssuedTickets, setLastIssuedTickets] = useState<IssuedTicket[]>([]);
 
   // === HOOKS CUSTOMIZADOS ===
-  const { user, customerData: authCustomerData, loading: authLoading, login, register, logout } = useAuth();
+  const { user, customerData: authCustomerData, loading: authLoading, login, register, logout, updateCustomer, refreshCustomer } = useAuth();
   const { events, loading: eventsLoading, loadEvents } = useEvents();
   const { tickets, loadTickets } = useTickets();
   const { cart, addToCart, removeFromCart, clearCart, getTotal } = useCart();
+
+  // Debug: Log quando authCustomerData mudar
+  useEffect(() => {
+    console.log('authCustomerData atualizado:', authCustomerData);
+  }, [authCustomerData]);
 
   // === FUNÇÕES ===
   const handleShowSuccess = (message: string) => {
@@ -50,6 +54,12 @@ const App: React.FC = () => {
   const handleLoginClick = async (email: string, password: string) => {
     const result = await login(email, password);
     if (result.success) {
+      // Aguardar um pouco para garantir que os dados foram carregados
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await refreshCustomer();
+      
+      console.log('Após login, authCustomerData:', authCustomerData);
+      
       if (email === 'admin@admin.com') {
         setScreen('admin');
         loadOrders();
@@ -72,6 +82,13 @@ const App: React.FC = () => {
     const result = await register(data);
     if (result.success) {
       handleShowSuccess(result.message);
+      
+      // Aguardar um pouco para garantir que os dados foram carregados
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await refreshCustomer();
+      
+      console.log('Após registro, authCustomerData:', authCustomerData);
+      
       // Após cadastro, já está logado, então ir para eventos ou checkout
       if (pendingCheckout) {
         setScreen('customer');
@@ -86,13 +103,32 @@ const App: React.FC = () => {
 
   // Função para tentar fazer checkout (verifica se está logado)
   const handleTryCheckout = () => {
-    if (user) {
-      // Usuário logado, pode prosseguir
-      setScreen('customer');
-    } else {
+    console.log('handleTryCheckout', { user: !!user, authCustomerData });
+    
+    if (!user) {
       // Não logado, redirecionar para login
       setPendingCheckout(true);
       setScreen('login');
+      return;
+    }
+
+    // Verificar se dados do customer estão completos
+    const hasCompleteData = authCustomerData && 
+                           authCustomerData.name && 
+                           authCustomerData.email && 
+                           authCustomerData.cpf && 
+                           authCustomerData.phone;
+
+    console.log('Dados completos?', hasCompleteData, authCustomerData);
+
+    if (hasCompleteData) {
+      // Dados completos, ir direto para pagamento
+      console.log('Indo direto para pagamento');
+      setScreen('payment');
+    } else {
+      // Dados incompletos, ir para tela de checkout para preencher
+      console.log('Indo para confirmação de dados');
+      setScreen('customer');
     }
   };
 
@@ -125,8 +161,24 @@ const App: React.FC = () => {
     }
   }, [screen]);
 
-  const handleCheckoutSubmit = (customer: Customer) => {
-    setCustomerData(customer);
+  const handleCheckoutSubmit = async (customer: Customer) => {
+    // Atualizar dados do customer se houver alterações
+    if (user && !user.isAdmin) {
+      const updates: Partial<Customer> = {};
+      
+      if (customer.name !== authCustomerData?.name) updates.name = customer.name;
+      if (customer.email !== authCustomerData?.email) updates.email = customer.email;
+      if (customer.cpf !== authCustomerData?.cpf) updates.cpf = customer.cpf;
+      if (customer.phone !== authCustomerData?.phone) updates.phone = customer.phone;
+      
+      if (Object.keys(updates).length > 0) {
+        console.log('Atualizando dados do customer:', updates);
+        await updateCustomer(updates);
+        await refreshCustomer();
+      }
+    }
+    
+    console.log('handleCheckoutSubmit - Indo para pagamento', { authCustomerData });
     setScreen('payment');
   };
 
@@ -147,11 +199,33 @@ const App: React.FC = () => {
   };
 
   const processPayment = async (paymentMethod: 'pix' | 'card') => {
-    console.log('processPayment iniciado', { paymentMethod, customerData, selectedEventId });
+    console.log('processPayment iniciado', { 
+      paymentMethod, 
+      hasCustomerData: !!authCustomerData,
+      customerData: authCustomerData,
+      selectedEventId,
+      cart 
+    });
     
-    if (!customerData || !selectedEventId) {
-      console.error('Dados faltando:', { customerData, selectedEventId });
-      handleShowSuccess('Erro: dados do cliente ou evento não encontrados');
+    // Tentar recarregar dados do customer se não estiverem disponíveis
+    if (!authCustomerData && user && !user.isAdmin) {
+      console.log('Tentando recarregar dados do customer...');
+      await refreshCustomer();
+      
+      // Aguardar um pouco para o estado atualizar
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    if (!authCustomerData || !selectedEventId) {
+      console.error('Dados faltando após reload:', { 
+        authCustomerData, 
+        hasAuthCustomerData: !!authCustomerData,
+        selectedEventId,
+        user
+      });
+      handleShowSuccess('Erro: dados do cliente ou evento não encontrados. Por favor, complete seu cadastro.');
+      // Redirecionar para tela de checkout
+      setScreen('customer');
       return;
     }
 
@@ -177,7 +251,7 @@ const App: React.FC = () => {
       console.log('Criando pedido...', { cartItems, newOrderId });
 
       const order = await orderService.create(
-        customerData,
+        authCustomerData,
         {
           order_id: newOrderId,
           event_id: selectedEventId,
@@ -210,7 +284,6 @@ const App: React.FC = () => {
   const handleGoHome = () => {
     setScreen('events-list');
     setSelectedEventId(null);
-    setCustomerData(null);
     setOrderId('');
     clearCart();
   };
@@ -279,7 +352,7 @@ const App: React.FC = () => {
   // === RENDERIZAÇÃO ===
   if (authLoading || (eventsLoading && screen === 'events-list')) return <LoadingScreen />;
 
-  console.log('Render:', { screen, customerData: !!customerData, selectedEventId, orderId });
+  console.log('Render:', { screen, authCustomerData: !!authCustomerData, selectedEventId, orderId });
 
   return (
     <div className="min-h-screen text-gray-900">
@@ -377,25 +450,25 @@ const App: React.FC = () => {
       )}
 
       {/* IMPRESSÃO DE TICKETS */}
-      {screen === 'tickets-print' && customerData && selectedEventId && (
+      {screen === 'tickets-print' && authCustomerData && selectedEventId && (
         <TicketsPrintScreen
           orderId={orderId}
           event={events.find(e => e.id === selectedEventId)}
           issuedTickets={lastIssuedTickets}
-          customerName={customerData.name}
-          customerEmail={customerData.email}
-          customerCpf={customerData.cpf}
+          customerName={authCustomerData.name}
+          customerEmail={authCustomerData.email}
+          customerCpf={authCustomerData.cpf}
           total={getTotal(tickets)}
           onGoHome={handleGoHome}
         />
       )}
 
       {/* SUCESSO */}
-      {screen === 'success' && customerData && (
+      {screen === 'success' && authCustomerData && (
         <SuccessScreen
           orderNumber={orderId}
           total={getTotal(tickets)}
-          customerEmail={customerData.email}
+          customerEmail={authCustomerData.email}
           onDownloadTicket={handleDownloadTicket}
           onGoHome={handleGoHome}
         />

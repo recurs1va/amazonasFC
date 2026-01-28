@@ -88,15 +88,22 @@ class AuthService {
         phone: data.phone.replace(/\D/g, '')
       };
 
-      const { error: customerError } = await supabase
+      const { data: insertedCustomer, error: customerError } = await supabase
         .from('customers')
-        .insert(customerData);
+        .insert(customerData)
+        .select()
+        .single();
 
       if (customerError) {
         // Se falhar ao criar customer, deletar o usuário criado
         console.error('Erro ao criar customer:', customerError);
-        // Nota: Em produção, implementar lógica de rollback
+        return {
+          success: false,
+          message: 'Erro ao criar registro de cliente: ' + customerError.message
+        };
       }
+
+      console.log('Customer criado com sucesso:', insertedCustomer);
 
       return {
         success: true,
@@ -242,15 +249,36 @@ class AuthService {
    */
   async getCurrentCustomer(): Promise<Customer | null> {
     if (!isSupabaseConfigured || !supabase) {
-      return null;
+      // Fallback: buscar do localStorage
+      const storedUser = localStorage.getItem('amazonasFC_currentUser');
+      if (!storedUser) return null;
+      
+      const user = JSON.parse(storedUser);
+      const users = this.getLocalStorageUsers();
+      const userData = users[user.email];
+      
+      if (!userData) return null;
+      
+      console.log('getCurrentCustomer (localStorage):', userData);
+      
+      return {
+        id: undefined,
+        name: userData.name,
+        email: user.email,
+        cpf: userData.cpf || '',
+        phone: userData.phone || ''
+      };
     }
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session?.user) {
+        console.log('getCurrentCustomer: Sem sessão');
         return null;
       }
+
+      console.log('Buscando customer para auth_user_id:', session.user.id);
 
       const { data, error } = await supabase
         .from('customers')
@@ -263,6 +291,7 @@ class AuthService {
         return null;
       }
 
+      console.log('getCurrentCustomer (Supabase):', data);
       return data;
     } catch (error) {
       console.error('Erro ao obter customer:', error);
@@ -285,9 +314,18 @@ class AuthService {
         return { success: false, message: 'Usuário não autenticado' };
       }
 
+      // Limpar CPF e telefone antes de salvar
+      const cleanUpdates: any = { ...updates };
+      if (cleanUpdates.cpf) {
+        cleanUpdates.cpf = cleanUpdates.cpf.replace(/\D/g, '');
+      }
+      if (cleanUpdates.phone) {
+        cleanUpdates.phone = cleanUpdates.phone.replace(/\D/g, '');
+      }
+
       const { error } = await supabase
         .from('customers')
-        .update(updates)
+        .update(cleanUpdates)
         .eq('auth_user_id', session.user.id);
 
       if (error) {
@@ -300,6 +338,58 @@ class AuthService {
       return {
         success: false,
         message: error instanceof Error ? error.message : 'Erro ao atualizar dados'
+      };
+    }
+  }
+
+  /**
+   * Garante que o customer existe para o usuário logado (cria se não existir)
+   * Útil para casos onde o usuário foi criado mas o customer não
+   */
+  async ensureCustomerExists(): Promise<{ success: boolean; message: string }> {
+    if (!isSupabaseConfigured || !supabase) {
+      return { success: true, message: 'Modo offline' };
+    }
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.user) {
+        return { success: false, message: 'Usuário não autenticado' };
+      }
+
+      // Verificar se customer já existe
+      const { data: existing } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('auth_user_id', session.user.id)
+        .single();
+
+      if (existing) {
+        return { success: true, message: 'Customer já existe' };
+      }
+
+      // Criar customer se não existir
+      const { error } = await supabase
+        .from('customers')
+        .insert({
+          auth_user_id: session.user.id,
+          email: session.user.email!,
+          name: session.user.user_metadata?.name || 'Usuário',
+          cpf: '',
+          phone: ''
+        });
+
+      if (error) {
+        return { success: false, message: error.message };
+      }
+
+      return { success: true, message: 'Customer criado com sucesso' };
+    } catch (error) {
+      console.error('Erro ao garantir customer:', error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Erro ao criar customer'
       };
     }
   }

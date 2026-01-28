@@ -61,6 +61,9 @@ export const useAuth = () => {
 
         // Carregar dados completos do customer
         if (!authUser.isAdmin) {
+          // Garantir que customer existe
+          await authService.ensureCustomerExists();
+          
           const customer = await authService.getCurrentCustomer();
           setCustomerData(customer);
         }
@@ -86,7 +89,11 @@ export const useAuth = () => {
 
       // Carregar dados do customer se não for admin
       if (!result.user.isAdmin) {
+        // Garantir que customer existe primeiro
+        await authService.ensureCustomerExists();
+        
         const customer = await authService.getCurrentCustomer();
+        console.log('Customer carregado após login:', customer);
         setCustomerData(customer);
       }
     }
@@ -118,8 +125,12 @@ export const useAuth = () => {
         isAdmin: result.user.isAdmin
       });
 
+      // Aguardar um pouco para garantir que o registro foi persistido
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       // Carregar dados do customer
       const customer = await authService.getCurrentCustomer();
+      console.log('Customer carregado após registro:', customer);
       setCustomerData(customer);
     }
     

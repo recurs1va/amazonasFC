@@ -16,21 +16,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_auth_user_id_unique ON customers
 ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 
 -- 5. Criar política: Usuários podem ler seus próprios dados
+DROP POLICY IF EXISTS "Users can read their own customer data" ON customers;
 CREATE POLICY "Users can read their own customer data"
 ON customers
 FOR SELECT
+TO authenticated
 USING (auth.uid() = auth_user_id);
 
 -- 6. Criar política: Usuários podem atualizar seus próprios dados
+DROP POLICY IF EXISTS "Users can update their own customer data" ON customers;
 CREATE POLICY "Users can update their own customer data"
 ON customers
 FOR UPDATE
+TO authenticated
 USING (auth.uid() = auth_user_id);
 
 -- 7. Criar política: Permitir inserção durante cadastro (vinculado ao auth_user_id)
+-- IMPORTANTE: Esta política permite que usuários autenticados criem seu próprio registro
+DROP POLICY IF EXISTS "Users can insert their own customer data" ON customers;
 CREATE POLICY "Users can insert their own customer data"
 ON customers
 FOR INSERT
+TO authenticated
 WITH CHECK (auth.uid() = auth_user_id);
 
 -- 8. Criar política: Admin pode ler todos os dados (opcional)

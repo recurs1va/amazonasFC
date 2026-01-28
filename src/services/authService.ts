@@ -80,30 +80,61 @@ class AuthService {
       }
 
       // 2. Criar registro na tabela customers vinculado ao auth.users
-      const customerData: any = {
-        auth_user_id: authData.user.id,
-        name: data.name,
-        email: data.email,
-        cpf: data.cpf.replace(/\D/g, ''),
-        phone: data.phone.replace(/\D/g, '')
-      };
-
+      // Usando função RPC para contornar problemas de RLS
+      console.log('Tentando criar customer via RPC...');
+      
       const { data: insertedCustomer, error: customerError } = await supabase
-        .from('customers')
-        .insert(customerData)
-        .select()
+        .rpc('create_customer_for_user', {
+          p_name: data.name,
+          p_email: data.email,
+          p_cpf: data.cpf.replace(/\D/g, ''),
+          p_phone: data.phone.replace(/\D/g, '')
+        })
         .single();
 
-      if (customerError) {
-        // Se falhar ao criar customer, deletar o usuário criado
-        console.error('Erro ao criar customer:', customerError);
-        return {
-          success: false,
-          message: 'Erro ao criar registro de cliente: ' + customerError.message
-        };
-      }
+      console.log('Resposta RPC:', { insertedCustomer, customerError });
 
-      console.log('Customer criado com sucesso:', insertedCustomer);
+      if (customerError) {
+        console.error('Erro ao criar customer via RPC:', customerError);
+        
+        // Se a função não existir, tentar método tradicional (fallback)
+        if (customerError.message?.includes('function') || customerError.code === '42883') {
+          console.log('Função create_customer_for_user não encontrada, tentando insert direto...');
+          
+          const customerData: any = {
+            auth_user_id: authData.user.id,
+            name: data.name,
+            email: data.email,
+            cpf: data.cpf.replace(/\D/g, ''),
+            phone: data.phone.replace(/\D/g, '')
+          };
+
+          const { data: directInsert, error: directError } = await supabase
+            .from('customers')
+            .insert(customerData)
+            .select()
+            .single();
+
+          console.log('Resposta INSERT direto:', { directInsert, directError });
+
+          if (directError) {
+            console.error('Erro ao criar customer (método direto):', directError);
+            return {
+              success: false,
+              message: 'Erro ao criar registro de cliente. Verifique as políticas RLS no Supabase.'
+            };
+          }
+
+          console.log('Customer criado com sucesso (método direto):', directInsert);
+        } else {
+          return {
+            success: false,
+            message: 'Erro ao criar registro de cliente: ' + customerError.message
+          };
+        }
+      } else {
+        console.log('Customer criado com sucesso via RPC:', insertedCustomer);
+      }
 
       return {
         success: true,

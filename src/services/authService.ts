@@ -241,18 +241,30 @@ class AuthService {
    * Obtém a sessão atual
    */
   async getSession(): Promise<AuthUser | null> {
+    console.log('[authService] getSession - isSupabaseConfigured:', isSupabaseConfigured);
+    
     if (!isSupabaseConfigured || !supabase) {
+      console.log('[authService] Usando fallback localStorage');
       // Fallback: verificar localStorage
       const stored = localStorage.getItem('amazonasFC_currentUser');
       return stored ? JSON.parse(stored) : null;
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      console.log('[authService] Buscando sessão do Supabase...');
+      const { data: { session }, error } = await supabase.auth.getSession();
       
-      if (!session?.user) {
+      if (error) {
+        console.error('[authService] Erro ao buscar sessão:', error);
         return null;
       }
+      
+      if (!session?.user) {
+        console.log('[authService] Nenhuma sessão ativa');
+        return null;
+      }
+
+      console.log('[authService] Sessão encontrada para:', session.user.email);
 
       // Se for admin
       if (session.user.email === ADMIN_EMAIL) {
@@ -265,11 +277,17 @@ class AuthService {
       }
 
       // Buscar dados do customer
-      const { data: customerData } = await supabase
+      console.log('[authService] Buscando customer para user_id:', session.user.id);
+      const { data: customerData, error: customerError } = await supabase
         .from('customers')
         .select('*')
         .eq('auth_user_id', session.user.id)
         .single();
+
+      if (customerError && customerError.code !== 'PGRST116') {
+        // PGRST116 = No rows found (é esperado em alguns casos)
+        console.error('[authService] Erro ao buscar customer:', customerError);
+      }
 
       return {
         id: session.user.id,
@@ -278,7 +296,7 @@ class AuthService {
         isAdmin: false
       };
     } catch (error) {
-      console.error('Erro ao obter sessão:', error);
+      console.error('[authService] Erro ao obter sessão:', error);
       return null;
     }
   }

@@ -21,6 +21,10 @@ const getEnv = (name: string): string => {
 const SUPABASE_URL = getEnv('VITE_SUPABASE_URL');
 const SUPABASE_KEY = getEnv('VITE_SUPABASE_KEY');
 
+// Debug: log das variáveis de ambiente em produção
+console.log('[supabaseClient] VITE_SUPABASE_URL:', SUPABASE_URL ? `${SUPABASE_URL.substring(0, 30)}...` : 'NÃO CONFIGURADO');
+console.log('[supabaseClient] VITE_SUPABASE_KEY:', SUPABASE_KEY ? 'CONFIGURADO' : 'NÃO CONFIGURADO');
+
 // Valida se a URL é uma URL HTTP/HTTPS válida
 const isValidUrl = (url: string): boolean => {
   try {
@@ -38,8 +42,16 @@ export const isSupabaseConfigured = Boolean(
   isValidUrl(SUPABASE_URL)
 );
 
+console.log('[supabaseClient] isSupabaseConfigured:', isSupabaseConfigured);
+
 // Só cria o cliente Supabase se estiver configurado corretamente
 // Caso contrário, exporta null e o sistema usa localStorage
 export const supabase: SupabaseClient<Database> | null = isSupabaseConfigured 
   ? createClient<Database>(SUPABASE_URL, SUPABASE_KEY)
   : null;
+
+if (isSupabaseConfigured) {
+  console.log('[supabaseClient] ✅ Cliente Supabase criado com sucesso');
+} else {
+  console.warn('[supabaseClient] ⚠️ Supabase não configurado - usando localStorage como fallback');
+}

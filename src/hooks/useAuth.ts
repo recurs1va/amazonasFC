@@ -25,10 +25,21 @@ export const useAuth = () => {
 
   // Carregar sessão ao montar
   useEffect(() => {
-    loadSession();
+    console.log('[useAuth] useEffect montado');
+    
+    // Timeout de segurança: se após 5s ainda estiver loading, forçar fim
+    const timeoutId = setTimeout(() => {
+      console.warn('[useAuth] TIMEOUT: Forçando fim do loading após 5s');
+      setLoading(false);
+    }, 5000);
+    
+    loadSession().then(() => {
+      clearTimeout(timeoutId);
+    });
     
     // Listener para mudanças de autenticação
     const { data: { subscription } } = authService.onAuthStateChange((authUser) => {
+      console.log('[useAuth] Auth state changed:', authUser ? 'Logado' : 'Deslogado');
       if (authUser) {
         setUser({
           id: authUser.id,
@@ -43,14 +54,19 @@ export const useAuth = () => {
     });
 
     return () => {
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, []);
 
   const loadSession = async () => {
+    console.log('[useAuth] Iniciando loadSession...');
     setLoading(true);
     try {
+      console.log('[useAuth] Buscando sessão...');
       const authUser = await authService.getSession();
+      console.log('[useAuth] Sessão retornada:', authUser ? 'Usuário encontrado' : 'Sem usuário');
+      
       if (authUser) {
         setUser({
           id: authUser.id,
@@ -61,16 +77,24 @@ export const useAuth = () => {
 
         // Carregar dados completos do customer
         if (!authUser.isAdmin) {
-          // Garantir que customer existe
-          await authService.ensureCustomerExists();
-          
-          const customer = await authService.getCurrentCustomer();
-          setCustomerData(customer);
+          try {
+            console.log('[useAuth] Garantindo customer existe...');
+            await authService.ensureCustomerExists();
+            
+            console.log('[useAuth] Buscando dados do customer...');
+            const customer = await authService.getCurrentCustomer();
+            console.log('[useAuth] Customer carregado:', customer);
+            setCustomerData(customer);
+          } catch (customerError) {
+            console.error('[useAuth] Erro ao carregar customer:', customerError);
+            // Não bloquear o loading por erro de customer
+          }
         }
       }
     } catch (error) {
-      console.error('Erro ao carregar sessão:', error);
+      console.error('[useAuth] Erro ao carregar sessão:', error);
     } finally {
+      console.log('[useAuth] Loading finalizado');
       setLoading(false);
     }
   };

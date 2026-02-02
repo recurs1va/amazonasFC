@@ -30,13 +30,31 @@ export class OrderService {
       }));
     }
 
-    const { data, error } = await supabase
+    // Buscar pedidos com customers e events
+    const { data: orders, error } = await supabase
       .from('orders')
-      .select('*, customers(*), events(*), issued_tickets(*)')
+      .select('*, customers(*), events(*)')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    return data || [];
+    if (!orders || orders.length === 0) return [];
+
+    // Buscar issued_tickets para cada pedido
+    const ordersWithTickets = await Promise.all(
+      orders.map(async (order) => {
+        const { data: tickets } = await supabase
+          .from('issued_tickets')
+          .select('*')
+          .eq('order_id', order.order_id);
+        
+        return {
+          ...order,
+          issued_tickets: tickets || []
+        };
+      })
+    );
+
+    return ordersWithTickets;
   }
 
   /**
@@ -51,14 +69,32 @@ export class OrderService {
       }));
     }
 
-    const { data, error } = await supabase
+    // Buscar pedidos com customers e events
+    const { data: orders, error } = await supabase
       .from('orders')
-      .select('*, customers(*), events(*), issued_tickets(*)')
+      .select('*, customers(*), events(*)')
       .eq('event_id', eventId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    return data || [];
+    if (!orders || orders.length === 0) return [];
+
+    // Buscar issued_tickets para cada pedido
+    const ordersWithTickets = await Promise.all(
+      orders.map(async (order) => {
+        const { data: tickets } = await supabase
+          .from('issued_tickets')
+          .select('*')
+          .eq('order_id', order.order_id);
+        
+        return {
+          ...order,
+          issued_tickets: tickets || []
+        };
+      })
+    );
+
+    return ordersWithTickets;
   }
 
   /**
@@ -202,15 +238,20 @@ export class OrderService {
 
     if (ticketsError) throw ticketsError;
 
-    // 5. Retornar pedido completo
+    // 5. Buscar pedido completo com issued_tickets
     const { data: fullOrder, error: fullOrderError } = await supabase
       .from('orders')
-      .select('*, customers(*), events(*), issued_tickets(*)')
+      .select('*, customers(*), events(*)')
       .eq('id', orderData.id)
       .single();
 
     if (fullOrderError) throw fullOrderError;
-    return fullOrder;
+
+    // Adicionar issued_tickets manualmente
+    return {
+      ...fullOrder,
+      issued_tickets: ticketsData || []
+    };
   }
 }
 

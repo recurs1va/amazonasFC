@@ -2,8 +2,13 @@
 -- SOLUÇÃO DEFINITIVA: Função para criar customer
 -- =============================================
 
+-- 0. Remover versões antigas da função
+DROP FUNCTION IF EXISTS public.create_customer_for_user(TEXT, TEXT, TEXT, TEXT);
+DROP FUNCTION IF EXISTS public.create_customer_for_user(UUID, TEXT, TEXT, TEXT, TEXT);
+
 -- 1. Criar função que bypassa RLS para criar customer
 CREATE OR REPLACE FUNCTION public.create_customer_for_user(
+  p_auth_user_id UUID,
   p_name TEXT,
   p_email TEXT,
   p_cpf TEXT,
@@ -15,20 +20,20 @@ SECURITY DEFINER -- Executa com privilégios do dono (bypassa RLS)
 SET search_path = public
 AS $$
 BEGIN
-  -- Verificar se usuário está autenticado
-  IF auth.uid() IS NULL THEN
-    RAISE EXCEPTION 'Usuário não autenticado';
+  -- Verificar se o user_id foi fornecido
+  IF p_auth_user_id IS NULL THEN
+    RAISE EXCEPTION 'User ID não fornecido';
   END IF;
 
   -- Verificar se já existe customer para este usuário
-  IF EXISTS (SELECT 1 FROM customers WHERE auth_user_id = auth.uid()) THEN
+  IF EXISTS (SELECT 1 FROM customers WHERE auth_user_id = p_auth_user_id) THEN
     RAISE EXCEPTION 'Customer já existe para este usuário';
   END IF;
 
   -- Inserir e retornar o customer criado
   RETURN QUERY
   INSERT INTO customers (auth_user_id, name, email, cpf, phone)
-  VALUES (auth.uid(), p_name, p_email, p_cpf, p_phone)
+  VALUES (p_auth_user_id, p_name, p_email, p_cpf, p_phone)
   RETURNING *;
 END;
 $$;
@@ -60,4 +65,5 @@ ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 -- =============================================
 -- TESTE
 -- =============================================
--- SELECT * FROM public.create_customer_for_user('Teste', 'teste@teste.com', '12345678901', '11999999999');
+-- Substitua 'SEU-USER-ID-AQUI' pelo ID real de um usuário de teste
+-- SELECT * FROM public.create_customer_for_user('SEU-USER-ID-AQUI'::UUID, 'Teste', 'teste@teste.com', '12345678901', '11999999999');

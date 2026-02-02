@@ -740,18 +740,53 @@ const RegisterScreenTemp: React.FC<RegisterScreenTempProps> = ({ onRegister, onB
     password: '',
     confirmPassword: ''
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleRegister = () => {
-    onRegister({
-      name: formData.name,
-      email: formData.email,
-      cpf: formData.cpf,
-      phone: formData.phone,
-      password: formData.password,
-      confirmPassword: formData.confirmPassword
-    });
-    // Limpar formulário após registrar
-    setFormData({ name: '', email: '', cpf: '', phone: '', password: '', confirmPassword: '' });
+  const handleRegister = async () => {
+    // Prevenir múltiplos submits
+    if (isSubmitting) {
+      console.log('Já está processando registro, ignorando...');
+      return;
+    }
+
+    // Validar campos obrigatórios
+    if (!formData.name || !formData.email || !formData.cpf || !formData.phone || !formData.password || !formData.confirmPassword) {
+      setError('Por favor, preencha todos os campos');
+      return;
+    }
+
+    // Validar senhas
+    if (formData.password !== formData.confirmPassword) {
+      setError('As senhas não coincidem');
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      setError('A senha deve ter no mínimo 6 caracteres');
+      return;
+    }
+
+    setError('');
+    setIsSubmitting(true);
+
+    try {
+      await onRegister({
+        name: formData.name,
+        email: formData.email,
+        cpf: formData.cpf,
+        phone: formData.phone,
+        password: formData.password,
+        confirmPassword: formData.confirmPassword
+      });
+      // Limpar formulário após registrar
+      setFormData({ name: '', email: '', cpf: '', phone: '', password: '', confirmPassword: '' });
+    } catch (err) {
+      console.error('Erro ao registrar:', err);
+      setError('Erro ao criar conta. Tente novamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -770,6 +805,11 @@ const RegisterScreenTemp: React.FC<RegisterScreenTempProps> = ({ onRegister, onB
           Criar Conta
         </h1>
         <p className="text-center text-gray-600 text-sm mb-6">Registre-se para comprar ingressos</p>
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-xl mb-4">
+            {error}
+          </div>
+        )}
         <div className="space-y-3">
           <input
             type="text"
@@ -817,9 +857,10 @@ const RegisterScreenTemp: React.FC<RegisterScreenTempProps> = ({ onRegister, onB
           />
           <button 
             onClick={handleRegister}
-            className="w-full bg-yellow-400 text-black py-3 rounded-xl font-bold hover:bg-yellow-500 transition mt-2"
+            disabled={isSubmitting}
+            className="w-full bg-yellow-400 text-black py-3 rounded-xl font-bold hover:bg-yellow-500 transition mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Criar Conta
+            {isSubmitting ? 'Criando conta...' : 'Criar Conta'}
           </button>
           <div className="relative my-4">
             <div className="absolute inset-0 flex items-center">

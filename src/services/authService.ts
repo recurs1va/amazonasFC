@@ -72,6 +72,13 @@ class AuthService {
         if (authError.message.includes('already registered')) {
           return { success: false, message: 'Este e-mail já está registrado' };
         }
+        // Tratamento específico para rate limiting
+        if (authError.message.includes('rate limit') || authError.status === 429) {
+          return { 
+            success: false, 
+            message: 'Muitas tentativas de cadastro. Por favor, aguarde alguns minutos e tente novamente.' 
+          };
+        }
         return { success: false, message: authError.message };
       }
 

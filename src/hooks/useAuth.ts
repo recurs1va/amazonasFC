@@ -107,6 +107,8 @@ export const useAuth = () => {
       return { success: false, message: 'Senhas não coincidem' };
     }
 
+    console.log('Iniciando registro para:', data.email);
+
     const signUpData: SignUpData = {
       email: data.email,
       password: data.password,
@@ -116,6 +118,7 @@ export const useAuth = () => {
     };
 
     const result = await authService.signUp(signUpData);
+    console.log('Resultado do registro:', result);
     
     if (result.success && result.user) {
       setUser({

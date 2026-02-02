@@ -26,19 +26,34 @@ export const useAuth = () => {
   // Carregar sessão ao montar
   useEffect(() => {
     console.log('[useAuth] useEffect montado');
+    let isMounted = true;
     
     // Timeout de segurança: se após 5s ainda estiver loading, forçar fim
     const timeoutId = setTimeout(() => {
-      console.warn('[useAuth] TIMEOUT: Forçando fim do loading após 5s');
-      setLoading(false);
+      if (isMounted) {
+        console.warn('[useAuth] TIMEOUT: Forçando fim do loading após 5s');
+        setLoading(false);
+      }
     }, 5000);
     
+    // Executar loadSession
     loadSession().then(() => {
-      clearTimeout(timeoutId);
+      if (isMounted) {
+        clearTimeout(timeoutId);
+      }
+    }).catch((error) => {
+      console.error('[useAuth] Erro fatal no loadSession:', error);
+      if (isMounted) {
+        clearTimeout(timeoutId);
+        setLoading(false);
+      }
     });
     
     // Listener para mudanças de autenticação
+    console.log('[useAuth] Configurando listener de auth...');
     const { data: { subscription } } = authService.onAuthStateChange((authUser) => {
+      if (!isMounted) return;
+      
       console.log('[useAuth] Auth state changed:', authUser ? 'Logado' : 'Deslogado');
       if (authUser) {
         setUser({
@@ -54,6 +69,8 @@ export const useAuth = () => {
     });
 
     return () => {
+      console.log('[useAuth] Cleanup do useEffect');
+      isMounted = false;
       clearTimeout(timeoutId);
       subscription.unsubscribe();
     };

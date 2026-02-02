@@ -47,7 +47,18 @@ console.log('[supabaseClient] isSupabaseConfigured:', isSupabaseConfigured);
 // Só cria o cliente Supabase se estiver configurado corretamente
 // Caso contrário, exporta null e o sistema usa localStorage
 export const supabase: SupabaseClient<Database> | null = isSupabaseConfigured 
-  ? createClient<Database>(SUPABASE_URL, SUPABASE_KEY)
+  ? createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false // Importante para evitar problemas em produção
+      },
+      global: {
+        headers: {
+          'x-client-info': 'amazonasfc-app'
+        }
+      }
+    })
   : null;
 
 if (isSupabaseConfigured) {

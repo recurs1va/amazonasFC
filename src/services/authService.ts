@@ -252,7 +252,17 @@ class AuthService {
 
     try {
       console.log('[authService] Buscando sessão do Supabase...');
-      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      // Timeout de 3 segundos para a chamada do Supabase
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout ao buscar sessão')), 3000)
+      );
+      
+      const { data: { session }, error } = await Promise.race([
+        sessionPromise,
+        timeoutPromise
+      ]) as any;
       
       if (error) {
         console.error('[authService] Erro ao buscar sessão:', error);
@@ -297,6 +307,7 @@ class AuthService {
       };
     } catch (error) {
       console.error('[authService] Erro ao obter sessão:', error);
+      // Em caso de timeout ou erro, retornar null para permitir continuar
       return null;
     }
   }
@@ -459,10 +470,20 @@ class AuthService {
       return { data: { subscription: { unsubscribe: () => {} } } };
     }
 
+    console.log('[authService] Configurando onAuthStateChange listener');
+
     return supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('[authService] Auth state changed - event:', event);
+      
       if (session?.user) {
-        const user = await this.getSession();
-        callback(user);
+        // Criar AuthUser diretamente sem chamar getSession de novo
+        const authUser: AuthUser = {
+          id: session.user.id,
+          email: session.user.email!,
+          name: session.user.user_metadata?.name || 'Usuário',
+          isAdmin: session.user.email === ADMIN_EMAIL
+        };
+        callback(authUser);
       } else {
         callback(null);
       }

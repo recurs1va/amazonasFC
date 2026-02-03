@@ -4,17 +4,24 @@ import { IssuedTicket } from '../types';
 
 /**
  * Gera um código único para o ingresso
- * Formato: TKT-{orderIdPart}-{sequencial}-{checkDigit}
+ * Formato: TKT-{random}-{timestamp}-{checkDigit}
  */
 export const generateTicketCode = (orderId: string, index: number): string => {
-  const orderPart = orderId.replace(/\D/g, '').substring(0, 4).padStart(4, '0');
-  const indexPart = String(index + 1).padStart(4, '0');
+  // Usar timestamp + random para garantir unicidade
+  const timestamp = Date.now().toString(36); // Base36 para ser mais curto
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const indexPart = String(index + 1).padStart(2, '0');
   
-  // Dígito verificador simples (soma dos dígitos mod 10)
-  const allDigits = orderPart + indexPart;
-  const checkDigit = allDigits.split('').reduce((sum, d) => sum + parseInt(d), 0) % 10;
+  // Combinar tudo
+  const basePart = `${random}${timestamp.slice(-4)}${indexPart}`;
   
-  return `TKT-${orderPart}-${indexPart}-${checkDigit}`;
+  // Dígito verificador simples
+  const checkDigit = basePart.split('').reduce((sum, char) => {
+    const code = char.charCodeAt(0);
+    return sum + (code >= 48 && code <= 57 ? parseInt(char) : code);
+  }, 0) % 36;
+  
+  return `TKT-${basePart}-${checkDigit.toString(36).toUpperCase()}`;
 };
 
 /**

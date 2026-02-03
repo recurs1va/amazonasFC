@@ -174,16 +174,34 @@ export class OrderService {
     const { customer: customerData } = await this.findOrCreateCustomer(customer);
 
     // 2. Gerar ingressos individuais a partir do carrinho
+    console.log('[orderService] Gerando códigos de ingressos...');
     const issuedTickets: Omit<IssuedTicket, 'id' | 'created_at'>[] = [];
+    const usedCodes = new Set<string>(); // Evitar duplicatas na mesma compra
     let ticketIndex = 0;
     
     for (const item of cartItems) {
       for (let i = 0; i < item.quantity; i++) {
+        // Gerar código único
+        let ticketCode: string;
+        let attempts = 0;
+        do {
+          ticketCode = generateTicketCode(order.order_id, ticketIndex);
+          attempts++;
+          if (attempts > 10) {
+            // Adicionar timestamp extra para garantir unicidade
+            ticketCode = `${ticketCode}-${Date.now().toString(36)}`;
+            break;
+          }
+        } while (usedCodes.has(ticketCode));
+        
+        usedCodes.add(ticketCode);
+        console.log(`[orderService] Código gerado: ${ticketCode}`);
+        
         issuedTickets.push({
           order_id: order.order_id,
           event_id: order.event_id,
           ticket_id: item.ticket_id,
-          ticket_code: generateTicketCode(order.order_id, ticketIndex),
+          ticket_code: ticketCode,
           ticket_name: item.ticket_name,
           unit_price: item.unit_price,
           customer_id: customerData.id,
@@ -193,6 +211,8 @@ export class OrderService {
         ticketIndex++;
       }
     }
+    
+    console.log(`[orderService] Total de ${issuedTickets.length} ingressos gerados`);
 
     if (!isSupabaseConfigured || !supabase) {
       // Modo localStorage
@@ -236,7 +256,40 @@ export class OrderService {
       .insert(issuedTickets)
       .select();
 
-    if (ticketsError) throw ticketsError;
+    if (ticketsError) {
+      // Se for erro de código duplicado, tentar novamente com novos códigos
+      if (ticketsError.code === '23505') {
+        console.warn('Código duplicado detectado, regenerando códigos...');
+        
+        // Regenerar todos os códigos com timestamp adicional
+        const retriedTickets = issuedTickets.map((ticket, idx) => ({
+          ...ticket,
+          ticket_code: `${generateTicketCode(order.order_id, idx)}-${Date.now().toString(36)}`
+        }));
+        
+        const { data: retriedData, error: retryError } = await supabase
+          .from('issued_tickets')
+          .insert(retriedTickets)
+          .select();
+        
+        if (retryError) {
+          // Se falhar novamente, deletar o pedido e lançar erro
+          await supabase.from('orders').delete().eq('id', orderData.id);
+          throw new Error(`Erro ao gerar ingressos: ${retryError.message}`);
+        }
+        
+        // Usar os tickets da retry
+        const fullOrder = {
+          ...orderData,
+          issued_tickets: retriedData || []
+        };
+        return fullOrder as any;
+      }
+      
+      // Outro erro - deletar pedido e lançar
+      await supabase.from('orders').delete().eq('id', orderData.id);
+      throw ticketsError;
+    }
 
     // 5. Buscar pedido completo com issued_tickets
     const { data: fullOrder, error: fullOrderError } = await supabase

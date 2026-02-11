@@ -141,11 +141,16 @@ const App: React.FC = () => {
 
   const loadOrders = async () => {
     try {
+      console.log('🔄 [App.loadOrders] Iniciando carregamento de pedidos...');
       const allOrders = await orderService.getAll();
-
+      console.log('✅ [App.loadOrders] Pedidos recebidos:', allOrders.length);
+      console.log('🎫 [App.loadOrders] Detalhes:', allOrders.map(o => ({
+        order_id: o.order_id,
+        tickets_count: o.issued_tickets?.length || 0
+      })));
       setOrders(allOrders);
     } catch (error) {
-      console.error('Erro ao carregar pedidos:', error);
+      console.error('❌ [App.loadOrders] Erro ao carregar pedidos:', error);
     }
   };
 

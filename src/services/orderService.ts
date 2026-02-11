@@ -32,6 +32,20 @@ export class OrderService {
 
     console.log('[orderService.getAll] Buscando pedidos no Supabase...');
 
+    // TESTE: Verificar se consegue buscar dados diretamente
+    const { count: ordersCount } = await supabase
+      .from('orders')
+      .select('*', { count: 'exact', head: true });
+    
+    const { count: ticketsCount } = await supabase
+      .from('issued_tickets')
+      .select('*', { count: 'exact', head: true });
+    
+    console.log('[orderService.getAll] Contagem direta:', {
+      orders: ordersCount,
+      issued_tickets: ticketsCount
+    });
+
     // Buscar pedidos com customers e events
     const { data: orders, error } = await supabase
       .from('orders')

@@ -19,6 +19,7 @@ export interface CartItem {
 export class OrderService {
   /**
    * Busca todos os pedidos com relacionamentos
+   * OTIMIZADO: Usa função do banco de dados para melhor performance
    */
   async getAll(): Promise<Order[]> {
     if (!isSupabaseConfigured || !supabase) {
@@ -32,7 +33,7 @@ export class OrderService {
 
     console.log('[orderService.getAll] Buscando pedidos no Supabase...');
 
-    // TESTE: Verificar se consegue buscar dados diretamente
+    // TESTE: Verificar contagens
     const { count: ordersCount } = await supabase
       .from('orders')
       .select('*', { count: 'exact', head: true });
@@ -46,10 +47,54 @@ export class OrderService {
       issued_tickets: ticketsCount
     });
 
-    // Buscar pedidos com customers e events
+    // OPÇÃO 1: Tentar usar a função otimizada do banco (melhor performance)
+    try {
+      const { data: ordersFromFunction, error: functionError } = await supabase
+        .rpc('get_orders_complete');
+
+      if (!functionError && ordersFromFunction && ordersFromFunction.length > 0) {
+        console.log(`[orderService.getAll] ✅ Usando função otimizada: ${ordersFromFunction.length} pedidos`);
+        
+        // Buscar issued_tickets separadamente (ainda necessário)
+        const { data: allTickets } = await supabase
+          .from('issued_tickets')
+          .select('*')
+          .order('created_at', { ascending: true });
+
+        // Mapear tickets por order_id
+        const ticketsByOrderId = new Map<string, any[]>();
+        if (allTickets) {
+          allTickets.forEach(ticket => {
+            if (!ticketsByOrderId.has(ticket.order_id)) {
+              ticketsByOrderId.set(ticket.order_id, []);
+            }
+            ticketsByOrderId.get(ticket.order_id)!.push(ticket);
+          });
+        }
+
+        // Adicionar issued_tickets aos pedidos
+        const ordersWithTickets = ordersFromFunction.map((order: any) => ({
+          ...order,
+          issued_tickets: ticketsByOrderId.get(order.order_id) || []
+        }));
+
+        console.log('[orderService.getAll] Pedidos com tickets mapeados');
+        return ordersWithTickets;
+      }
+    } catch (err) {
+      console.warn('[orderService.getAll] Função get_orders_complete não disponível, usando fallback');
+    }
+
+    // OPÇÃO 2: Fallback - JOIN automático via FK (se função não existir)
+    console.log('[orderService.getAll] Usando fallback (JOIN automático)');
+    
+    /**
+     * Retrieves all orders with their associated customer, event, and issued_tickets data using automatic JOINs.
+     * @returns {Promise<Order[]>} An array of complete orders with all relationships loaded.
+     */
     const { data: orders, error } = await supabase
       .from('orders')
-      .select('*, customers(*), events(*)')
+      .select('*, customers(*), events(*), issued_tickets(*)')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -62,44 +107,8 @@ export class OrderService {
       return [];
     }
 
-    console.log(`[orderService.getAll] ${orders.length} pedidos encontrados`);
-
-    // Buscar TODOS os issued_tickets de uma vez (mais eficiente)
-    const { data: allTickets, error: ticketsError } = await supabase
-      .from('issued_tickets')
-      .select('*')
-      .order('created_at', { ascending: true });
-
-    if (ticketsError) {
-      console.error('[orderService.getAll] Erro ao buscar issued_tickets:', ticketsError);
-    }
-
-    console.log(`[orderService.getAll] ${allTickets?.length || 0} issued_tickets encontrados no total`);
-
-    // Criar um mapa de tickets por order_id
-    const ticketsByOrderId = new Map<string, any[]>();
-    if (allTickets) {
-      allTickets.forEach(ticket => {
-        const orderId = ticket.order_id;
-        if (!ticketsByOrderId.has(orderId)) {
-          ticketsByOrderId.set(orderId, []);
-        }
-        ticketsByOrderId.get(orderId)!.push(ticket);
-      });
-    }
-
-    // Mapear issued_tickets para cada pedido
-    const ordersWithTickets = orders.map((order) => {
-      const tickets = ticketsByOrderId.get(order.order_id) || [];
-      console.log(`[orderService.getAll] Pedido ${order.order_id} tem ${tickets.length} ingressos`);
-      return {
-        ...order,
-        issued_tickets: tickets
-      };
-    });
-
-    console.log('[orderService.getAll] Pedidos com tickets mapeados com sucesso');
-    return ordersWithTickets;
+    console.log(`[orderService.getAll] ${orders.length} pedidos encontrados com JOINs automáticos`);
+    return orders;
   }
 
   /**
@@ -114,32 +123,15 @@ export class OrderService {
       }));
     }
 
-    // Buscar pedidos com customers e events
+    // Buscar pedidos com JOINs automáticos via FK
     const { data: orders, error } = await supabase
       .from('orders')
-      .select('*, customers(*), events(*)')
+      .select('*, customers(*), events(*), issued_tickets(*)')
       .eq('event_id', eventId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    if (!orders || orders.length === 0) return [];
-
-    // Buscar issued_tickets para cada pedido
-    const ordersWithTickets = await Promise.all(
-      orders.map(async (order) => {
-        const { data: tickets } = await supabase
-          .from('issued_tickets')
-          .select('*')
-          .eq('order_id', order.order_id);
-        
-        return {
-          ...order,
-          issued_tickets: tickets || []
-        };
-      })
-    );
-
-    return ordersWithTickets;
+    return orders || [];
   }
 
   /**
@@ -349,21 +341,24 @@ export class OrderService {
     console.log(`[orderService.create] ${ticketsData?.length || 0} issued_tickets criados com sucesso`);
     console.log('[orderService.create] IDs dos tickets:', ticketsData?.map(t => t.ticket_code).join(', '));
 
-    // 5. Buscar pedido completo com issued_tickets
-    const { data: fullOrder, error: fullOrderError } = await supabase
-      .from('orders')
-      .select('*, customers(*), events(*)')
-      .eq('id', orderData.id)
+    // 5. Buscar dados relacionados separadamente (evita RLS)
+    const { data: customerInfo } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('id', customerData.id)
       .single();
 
-    if (fullOrderError) {
-      console.error('[orderService.create] Erro ao buscar pedido completo:', fullOrderError);
-      throw fullOrderError;
-    }
+    const { data: eventInfo } = await supabase
+      .from('events')
+      .select('*')
+      .eq('id', order.event_id)
+      .single();
 
-    // Adicionar issued_tickets manualmente
+    // Montar pedido completo
     const resultOrder = {
-      ...fullOrder,
+      ...orderData,
+      customers: customerInfo,
+      events: eventInfo,
       issued_tickets: ticketsData || []
     };
     

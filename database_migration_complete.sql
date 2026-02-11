@@ -7,8 +7,8 @@
 -- ATENÇÃO: Este script irá DELETAR todos os dados existentes!
 -- Use com cuidado em produção!
 --
--- Versão: 1.0
--- Data: 02/02/2026
+-- Versão: 2.0 - RLS corrigido para admin
+-- Data: 10/02/2026
 -- =============================================
 
 -- =============================================
@@ -20,11 +20,18 @@ DROP POLICY IF EXISTS "Users can read their own customer data" ON public.custome
 DROP POLICY IF EXISTS "Users can update their own customer data" ON public.customers;
 DROP POLICY IF EXISTS "Users can insert their own customer data" ON public.customers;
 DROP POLICY IF EXISTS "Enable read access for authenticated users" ON public.events;
+DROP POLICY IF EXISTS "Enable read access for all users" ON public.events;
 DROP POLICY IF EXISTS "Enable read access for authenticated users" ON public.tickets;
+DROP POLICY IF EXISTS "Enable read access for all users" ON public.tickets;
 DROP POLICY IF EXISTS "Enable insert for authenticated users" ON public.orders;
 DROP POLICY IF EXISTS "Enable read for users based on customer_id" ON public.orders;
+DROP POLICY IF EXISTS "Users can read their own orders" ON public.orders;
+DROP POLICY IF EXISTS "Allow admin and own orders read" ON public.orders;
 DROP POLICY IF EXISTS "Enable insert for authenticated users" ON public.issued_tickets;
 DROP POLICY IF EXISTS "Enable read for users based on customer_id" ON public.issued_tickets;
+DROP POLICY IF EXISTS "Users can read their own issued tickets" ON public.issued_tickets;
+DROP POLICY IF EXISTS "Allow admin and own tickets read" ON public.issued_tickets;
+DROP POLICY IF EXISTS "Enable update for validation" ON public.issued_tickets;
 
 -- Remover funções existentes
 DROP FUNCTION IF EXISTS public.create_customer_for_user(UUID, TEXT, TEXT, TEXT, TEXT);
@@ -102,13 +109,11 @@ COMMENT ON COLUMN public.orders.order_id IS 'ID único do pedido (ex: ORD-173853
 COMMENT ON COLUMN public.orders.payment_method IS 'Método de pagamento (pix, cartao, dinheiro)';
 
 -- Tabela: ISSUED_TICKETS (Ingressos Emitidos Individualmente)
--- IMPORTANTE: order_id é TEXT e NÃO tem FK para orders.id
--- A relação é feita através de orders.order_id (também TEXT)
--- Por isso, joins automáticos com Supabase não funcionam
--- Use queries separadas no código para buscar issued_tickets
+-- IMPORTANTE: order_id referencia orders.order_id (TEXT UNIQUE) via FK
+-- Isso permite JOINs automáticos com Supabase e garante integridade referencial
 CREATE TABLE public.issued_tickets (
   id BIGSERIAL PRIMARY KEY,
-  order_id TEXT NOT NULL,
+  order_id TEXT NOT NULL REFERENCES public.orders(order_id) ON DELETE CASCADE,
   event_id BIGINT NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
   ticket_id BIGINT NOT NULL REFERENCES public.tickets(id) ON DELETE CASCADE,
   ticket_code TEXT NOT NULL UNIQUE,
@@ -162,11 +167,20 @@ ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.issued_tickets ENABLE ROW LEVEL SECURITY;
 
 -- Políticas para CUSTOMERS
-CREATE POLICY "Users can read their own customer data"
+CREATE POLICY "Allow admin and own customer data read"
 ON public.customers
 FOR SELECT
 TO authenticated
-USING (auth.uid() = auth_user_id);
+USING (
+  -- Admin pode ver todos os clientes
+  EXISTS (
+    SELECT 1 FROM auth.users
+    WHERE id = auth.uid()
+    AND email = 'admin@admin.com'
+  )
+  -- OU usuário vê seus próprios dados
+  OR auth.uid() = auth_user_id
+);
 
 CREATE POLICY "Users can update their own customer data"
 ON public.customers
@@ -197,12 +211,19 @@ FOR INSERT
 TO authenticated
 WITH CHECK (true);
 
-CREATE POLICY "Users can read their own orders"
+CREATE POLICY "Allow admin and own orders read"
 ON public.orders
 FOR SELECT
 TO authenticated
 USING (
-  customer_id IN (
+  -- Admin pode ver todos os pedidos
+  EXISTS (
+    SELECT 1 FROM auth.users
+    WHERE id = auth.uid()
+    AND email = 'admin@admin.com'
+  )
+  -- OU usuário vê seus próprios pedidos
+  OR customer_id IN (
     SELECT id FROM public.customers WHERE auth_user_id = auth.uid()
   )
 );
@@ -214,12 +235,19 @@ FOR INSERT
 TO authenticated
 WITH CHECK (true);
 
-CREATE POLICY "Users can read their own issued tickets"
+CREATE POLICY "Allow admin and own tickets read"
 ON public.issued_tickets
 FOR SELECT
 TO authenticated
 USING (
-  customer_id IN (
+  -- Admin pode ver todos os tickets
+  EXISTS (
+    SELECT 1 FROM auth.users
+    WHERE id = auth.uid()
+    AND email = 'admin@admin.com'
+  )
+  -- OU usuário vê seus próprios tickets
+  OR customer_id IN (
     SELECT id FROM public.customers WHERE auth_user_id = auth.uid()
   )
 );

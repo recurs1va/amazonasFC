@@ -55,6 +55,15 @@ export const AdminScreenFull: React.FC<AdminScreenFullProps> = ({
   const [reportFilterEvent, setReportFilterEvent] = useState<'all' | number>('all');
   const [reportFilterTicket, setReportFilterTicket] = useState<string>('all');
 
+  // Debug: Log sempre que orders mudar
+  useEffect(() => {
+    console.log('🔍 [AdminScreen] Props orders atualizados:', {
+      total: orders.length,
+      firstOrder: orders[0],
+      allOrders: orders
+    });
+  }, [orders]);
+
   // === FUNÇÕES DE EVENTOS ===
   const openEventModal = (event?: Event) => {
     if (event) {
@@ -164,6 +173,18 @@ export const AdminScreenFull: React.FC<AdminScreenFullProps> = ({
   const filteredOrders = reportFilterEvent === 'all' 
     ? orders 
     : orders.filter(o => o.event_id === reportFilterEvent);
+
+  // Debug: Log dos pedidos e ingressos
+  useEffect(() => {
+    if (adminTab === 'reports' && orders.length > 0) {
+      console.log('📊 [AdminScreen] Total de pedidos:', orders.length);
+      console.log('📊 [AdminScreen] Primeiro pedido:', orders[0]);
+      console.log('📊 [AdminScreen] Issued tickets do primeiro pedido:', orders[0]?.issued_tickets);
+      console.log('📊 [AdminScreen] Total de issued_tickets em todos pedidos:', 
+        orders.reduce((sum, o) => sum + (o.issued_tickets?.length || 0), 0)
+      );
+    }
+  }, [adminTab, orders]);
 
   const totalRevenue = filteredOrders.reduce((sum, o) => sum + o.total, 0);
   const totalOrders = filteredOrders.length;
@@ -344,7 +365,18 @@ export const AdminScreenFull: React.FC<AdminScreenFullProps> = ({
           {/* ABA DE RELATÓRIOS */}
           {adminTab === 'reports' && (
             <div>
-              <h2 className="text-xl font-bold mb-6">Relatórios de Vendas</h2>
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold">Relatórios de Vendas</h2>
+                <button 
+                  onClick={() => {
+                    console.log('🔄 Forçando reload dos dados...');
+                    onReloadData();
+                  }}
+                  className="bg-yellow-400 text-black px-4 py-2 rounded-lg hover:bg-yellow-500 transition font-bold text-sm"
+                >
+                  🔄 Recarregar Dados
+                </button>
+              </div>
               
               {/* Filtros */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-gray-100 rounded-xl">

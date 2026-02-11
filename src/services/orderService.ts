@@ -19,6 +19,7 @@ export interface CartItem {
 export class OrderService {
   /**
    * Busca todos os pedidos com relacionamentos
+   * OTIMIZADO: Usa função do banco de dados para melhor performance
    */
   async getAll(): Promise<Order[]> {
     if (!isSupabaseConfigured || !supabase) {
@@ -30,31 +31,84 @@ export class OrderService {
       }));
     }
 
-    // Buscar pedidos com customers e events
-    const { data: orders, error } = await supabase
+    console.log('[orderService.getAll] Buscando pedidos no Supabase...');
+
+    // TESTE: Verificar contagens
+    const { count: ordersCount } = await supabase
       .from('orders')
-      .select('*, customers(*), events(*)')
-      .order('created_at', { ascending: false });
+      .select('*', { count: 'exact', head: true });
+    
+    const { count: ticketsCount } = await supabase
+      .from('issued_tickets')
+      .select('*', { count: 'exact', head: true });
+    
+    console.log('[orderService.getAll] Contagem direta:', {
+      orders: ordersCount,
+      issued_tickets: ticketsCount
+    });
 
-    if (error) throw error;
-    if (!orders || orders.length === 0) return [];
+    // OPÇÃO 1: Tentar usar a função otimizada do banco (melhor performance)
+    try {
+      const { data: ordersFromFunction, error: functionError } = await supabase
+        .rpc('get_orders_complete');
 
-    // Buscar issued_tickets para cada pedido
-    const ordersWithTickets = await Promise.all(
-      orders.map(async (order) => {
-        const { data: tickets } = await supabase
+      if (!functionError && ordersFromFunction && ordersFromFunction.length > 0) {
+        console.log(`[orderService.getAll] ✅ Usando função otimizada: ${ordersFromFunction.length} pedidos`);
+        
+        // Buscar issued_tickets separadamente (ainda necessário)
+        const { data: allTickets } = await supabase
           .from('issued_tickets')
           .select('*')
-          .eq('order_id', order.order_id);
-        
-        return {
-          ...order,
-          issued_tickets: tickets || []
-        };
-      })
-    );
+          .order('created_at', { ascending: true });
 
-    return ordersWithTickets;
+        // Mapear tickets por order_id
+        const ticketsByOrderId = new Map<string, any[]>();
+        if (allTickets) {
+          allTickets.forEach(ticket => {
+            if (!ticketsByOrderId.has(ticket.order_id)) {
+              ticketsByOrderId.set(ticket.order_id, []);
+            }
+            ticketsByOrderId.get(ticket.order_id)!.push(ticket);
+          });
+        }
+
+        // Adicionar issued_tickets aos pedidos
+        const ordersWithTickets = ordersFromFunction.map((order: any) => ({
+          ...order,
+          issued_tickets: ticketsByOrderId.get(order.order_id) || []
+        }));
+
+        console.log('[orderService.getAll] Pedidos com tickets mapeados');
+        return ordersWithTickets;
+      }
+    } catch (err) {
+      console.warn('[orderService.getAll] Função get_orders_complete não disponível, usando fallback');
+    }
+
+    // OPÇÃO 2: Fallback - JOIN automático via FK (se função não existir)
+    console.log('[orderService.getAll] Usando fallback (JOIN automático)');
+    
+    /**
+     * Retrieves all orders with their associated customer, event, and issued_tickets data using automatic JOINs.
+     * @returns {Promise<Order[]>} An array of complete orders with all relationships loaded.
+     */
+    const { data: orders, error } = await supabase
+      .from('orders')
+      .select('*, customers(*), events(*), issued_tickets(*)')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[orderService.getAll] Erro ao buscar pedidos:', error);
+      throw error;
+    }
+    
+    if (!orders || orders.length === 0) {
+      console.log('[orderService.getAll] Nenhum pedido encontrado');
+      return [];
+    }
+
+    console.log(`[orderService.getAll] ${orders.length} pedidos encontrados com JOINs automáticos`);
+    return orders;
   }
 
   /**
@@ -69,32 +123,15 @@ export class OrderService {
       }));
     }
 
-    // Buscar pedidos com customers e events
+    // Buscar pedidos com JOINs automáticos via FK
     const { data: orders, error } = await supabase
       .from('orders')
-      .select('*, customers(*), events(*)')
+      .select('*, customers(*), events(*), issued_tickets(*)')
       .eq('event_id', eventId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    if (!orders || orders.length === 0) return [];
-
-    // Buscar issued_tickets para cada pedido
-    const ordersWithTickets = await Promise.all(
-      orders.map(async (order) => {
-        const { data: tickets } = await supabase
-          .from('issued_tickets')
-          .select('*')
-          .eq('order_id', order.order_id);
-        
-        return {
-          ...order,
-          issued_tickets: tickets || []
-        };
-      })
-    );
-
-    return ordersWithTickets;
+    return orders || [];
   }
 
   /**
@@ -236,6 +273,7 @@ export class OrderService {
     }
 
     // 3. Criar pedido no Supabase
+    console.log('[orderService.create] Criando pedido no Supabase:', order.order_id);
     const { data: orderData, error: orderError } = await supabase
       .from('orders')
       .insert([{ 
@@ -248,15 +286,24 @@ export class OrderService {
       .select()
       .single();
 
-    if (orderError) throw orderError;
+    if (orderError) {
+      console.error('[orderService.create] Erro ao criar pedido:', orderError);
+      throw orderError;
+    }
+    
+    console.log('[orderService.create] Pedido criado com sucesso, ID:', orderData.id);
 
     // 4. Criar ingressos individuais no Supabase
+    console.log(`[orderService.create] Inserindo ${issuedTickets.length} issued_tickets...`);
+    console.log('[orderService.create] Primeiro ticket:', issuedTickets[0]);
+    
     const { data: ticketsData, error: ticketsError } = await supabase
       .from('issued_tickets')
       .insert(issuedTickets)
       .select();
 
     if (ticketsError) {
+      console.error('[orderService.create] Erro ao criar issued_tickets:', ticketsError);
       // Se for erro de código duplicado, tentar novamente com novos códigos
       if (ticketsError.code === '23505') {
         console.warn('Código duplicado detectado, regenerando códigos...');
@@ -291,20 +338,32 @@ export class OrderService {
       throw ticketsError;
     }
 
-    // 5. Buscar pedido completo com issued_tickets
-    const { data: fullOrder, error: fullOrderError } = await supabase
-      .from('orders')
-      .select('*, customers(*), events(*)')
-      .eq('id', orderData.id)
+    console.log(`[orderService.create] ${ticketsData?.length || 0} issued_tickets criados com sucesso`);
+    console.log('[orderService.create] IDs dos tickets:', ticketsData?.map(t => t.ticket_code).join(', '));
+
+    // 5. Buscar dados relacionados separadamente (evita RLS)
+    const { data: customerInfo } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('id', customerData.id)
       .single();
 
-    if (fullOrderError) throw fullOrderError;
+    const { data: eventInfo } = await supabase
+      .from('events')
+      .select('*')
+      .eq('id', order.event_id)
+      .single();
 
-    // Adicionar issued_tickets manualmente
-    return {
-      ...fullOrder,
+    // Montar pedido completo
+    const resultOrder = {
+      ...orderData,
+      customers: customerInfo,
+      events: eventInfo,
       issued_tickets: ticketsData || []
     };
+    
+    console.log('[orderService.create] Pedido completo com', resultOrder.issued_tickets?.length, 'ingressos');
+    return resultOrder;
   }
 }
 

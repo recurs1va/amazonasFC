@@ -142,6 +142,7 @@ const App: React.FC = () => {
   const loadOrders = async () => {
     try {
       const allOrders = await orderService.getAll();
+
       setOrders(allOrders);
     } catch (error) {
       console.error('Erro ao carregar pedidos:', error);

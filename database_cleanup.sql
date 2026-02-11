@@ -12,9 +12,7 @@
 SET session_replication_role = replica;
 
 -- Limpar dados na ordem correta (respeitando foreign keys)
-DELETE FROM public.validated_tickets;
 DELETE FROM public.issued_tickets;
-DELETE FROM public.order_items;
 DELETE FROM public.orders;
 DELETE FROM public.tickets;
 DELETE FROM public.events;
@@ -26,8 +24,6 @@ ALTER SEQUENCE public.tickets_id_seq RESTART WITH 1;
 ALTER SEQUENCE public.customers_id_seq RESTART WITH 1;
 ALTER SEQUENCE public.orders_id_seq RESTART WITH 1;
 ALTER SEQUENCE public.issued_tickets_id_seq RESTART WITH 1;
-ALTER SEQUENCE public.order_items_id_seq RESTART WITH 1;
-ALTER SEQUENCE public.validated_tickets_id_seq RESTART WITH 1;
 
 -- Reabilitar triggers
 SET session_replication_role = DEFAULT;

@@ -43,18 +43,6 @@ export interface IssuedTicket {
   created_at?: string;
 }
 
-/**
- * @deprecated Use IssuedTicket instead
- */
-export interface OrderItem {
-  id?: number;
-  order_id?: number;
-  ticket_id: number;
-  ticket_name: string;
-  quantity: number;
-  unit_price: number;
-}
-
 export interface Order {
   id?: number;
   order_id: string;
@@ -65,8 +53,7 @@ export interface Order {
   created_at?: string;
   customers?: Customer;
   events?: Event;
-  issued_tickets?: IssuedTicket[];  // Novo: ingressos individuais
-  order_items?: OrderItem[];        // @deprecated - manter para compatibilidade
+  issued_tickets?: IssuedTicket[];
 }
 
 export interface Database {
@@ -97,32 +84,9 @@ export interface Database {
         Insert: Omit<IssuedTicket, 'id' | 'created_at'>;
         Update: Partial<IssuedTicket>;
       };
-      order_items: {
-        Row: OrderItem;
-        Insert: Omit<OrderItem, 'id'>;
-        Update: Partial<Omit<OrderItem, 'id'>>;
-      };
-      validated_tickets: {
-        Row: ValidatedTicket;
-        Insert: Omit<ValidatedTicket, 'id' | 'created_at' | 'validated_at'>;
-        Update: Partial<Omit<ValidatedTicket, 'id' | 'created_at' | 'validated_at'>>;
-      };
     };
   };
 }
 
-/**
- * @deprecated Use IssuedTicket with validated_at field instead
- */
-export interface ValidatedTicket {
-  id?: number;
-  ticket_code: string;
-  order_id: string;
-  event_id: number;
-  ticket_id: number;
-  customer_name: string;
-  validated_at?: string;
-  created_at?: string;
-}
-
 export type Screen = 'login' | 'events-list' | 'tickets' | 'customer' | 'payment' | 'pix' | 'card' | 'tickets-print' | 'success' | 'admin' | 'validate';
+

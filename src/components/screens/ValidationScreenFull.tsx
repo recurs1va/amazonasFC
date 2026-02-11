@@ -73,7 +73,7 @@ export const ValidationScreenFull: React.FC<ValidationScreenFullProps> = ({
   const eventStats = validateEventId ? {
     sold: orders
       .filter(o => o.event_id === validateEventId)
-      .reduce((sum, o) => sum + (o.order_items?.reduce((s: number, i: any) => s + i.quantity, 0) || 0), 0),
+      .reduce((sum, o) => sum + (o.issued_tickets?.length || 0), 0),
     validated: validatedTickets.filter(v => v.event_id === validateEventId).length
   } : null;
 

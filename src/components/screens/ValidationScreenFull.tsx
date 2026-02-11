@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, LogOut, ScanLine, CheckCircle2, XCircle } from 'lucide-react';
 import { Button, Input } from '../common';
-import { Event, ValidatedTicket } from '../../types';
+import { Event } from '../../types';
 
 interface ValidationScreenFullProps {
   events: Event[];
@@ -21,7 +21,7 @@ export const ValidationScreenFull: React.FC<ValidationScreenFullProps> = ({
   const [validateEventId, setValidateEventId] = useState<number | null>(null);
   const [ticketCodeInput, setTicketCodeInput] = useState('');
   const [validationResult, setValidationResult] = useState<any>(null);
-  const [validatedTickets, setValidatedTickets] = useState<ValidatedTicket[]>([]);
+  const [validatedTickets, setValidatedTickets] = useState<any[]>([]);
   const [validating, setValidating] = useState(false);
 
   const validateTicket = async () => {
@@ -37,7 +37,7 @@ export const ValidationScreenFull: React.FC<ValidationScreenFullProps> = ({
       setValidationResult(result);
       
       if (result.valid && result.ticket) {
-        // Adicionar à lista de validados
+        // Adicionar à lista de validados desta sessão
         setValidatedTickets([{
           ticket_code: ticketCodeInput,
           order_id: result.ticket.orderId,

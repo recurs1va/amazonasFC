@@ -165,6 +165,18 @@ export const AdminScreenFull: React.FC<AdminScreenFullProps> = ({
     ? orders 
     : orders.filter(o => o.event_id === reportFilterEvent);
 
+  // Debug: Log dos pedidos e ingressos
+  useEffect(() => {
+    if (adminTab === 'reports' && orders.length > 0) {
+      console.log('📊 [AdminScreen] Total de pedidos:', orders.length);
+      console.log('📊 [AdminScreen] Primeiro pedido:', orders[0]);
+      console.log('📊 [AdminScreen] Issued tickets do primeiro pedido:', orders[0]?.issued_tickets);
+      console.log('📊 [AdminScreen] Total de issued_tickets em todos pedidos:', 
+        orders.reduce((sum, o) => sum + (o.issued_tickets?.length || 0), 0)
+      );
+    }
+  }, [adminTab, orders]);
+
   const totalRevenue = filteredOrders.reduce((sum, o) => sum + o.total, 0);
   const totalOrders = filteredOrders.length;
 

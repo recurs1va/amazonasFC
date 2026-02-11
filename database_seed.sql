@@ -7,7 +7,6 @@
 
 -- Limpar dados existentes (opcional)
 -- DELETE FROM public.issued_tickets;
--- DELETE FROM public.order_items;
 -- DELETE FROM public.orders;
 -- DELETE FROM public.tickets;
 -- DELETE FROM public.events;

@@ -31,9 +31,7 @@ DROP FUNCTION IF EXISTS public.create_customer_for_user(UUID, TEXT, TEXT, TEXT, 
 DROP FUNCTION IF EXISTS public.create_customer_for_user(TEXT, TEXT, TEXT, TEXT);
 
 -- Remover tabelas existentes (em ordem de dependências)
-DROP TABLE IF EXISTS public.validated_tickets CASCADE;
 DROP TABLE IF EXISTS public.issued_tickets CASCADE;
-DROP TABLE IF EXISTS public.order_items CASCADE;
 DROP TABLE IF EXISTS public.orders CASCADE;
 DROP TABLE IF EXISTS public.tickets CASCADE;
 DROP TABLE IF EXISTS public.events CASCADE;
@@ -126,33 +124,6 @@ COMMENT ON TABLE public.issued_tickets IS 'Cada ingresso individual emitido (1 r
 COMMENT ON COLUMN public.issued_tickets.ticket_code IS 'Código único do ingresso (ex: TKT-ABC-1234-5)';
 COMMENT ON COLUMN public.issued_tickets.validated_at IS 'Data/hora de validação (NULL = não validado ainda)';
 
--- Tabela: ORDER_ITEMS (DEPRECATED - manter para compatibilidade)
-CREATE TABLE public.order_items (
-  id SERIAL PRIMARY KEY,
-  order_id INTEGER REFERENCES public.orders(id) ON DELETE CASCADE,
-  ticket_id INTEGER REFERENCES public.tickets(id) ON DELETE CASCADE,
-  ticket_name TEXT NOT NULL,
-  quantity INTEGER NOT NULL,
-  unit_price NUMERIC NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW()
-);
-
-COMMENT ON TABLE public.order_items IS 'DEPRECATED: Use issued_tickets. Mantido para compatibilidade.';
-
--- Tabela: VALIDATED_TICKETS (DEPRECATED - manter para compatibilidade)
-CREATE TABLE public.validated_tickets (
-  id BIGSERIAL PRIMARY KEY,
-  ticket_code TEXT NOT NULL UNIQUE,
-  order_id TEXT NOT NULL,
-  event_id BIGINT NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
-  ticket_id BIGINT NOT NULL REFERENCES public.tickets(id) ON DELETE CASCADE,
-  customer_name TEXT NOT NULL,
-  validated_at TIMESTAMPTZ DEFAULT NOW(),
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-COMMENT ON TABLE public.validated_tickets IS 'DEPRECATED: Use issued_tickets.validated_at. Mantido para compatibilidade.';
-
 -- =============================================
 -- PARTE 3: ÍNDICES PARA PERFORMANCE
 -- =============================================
@@ -189,8 +160,6 @@ ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.issued_tickets ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.validated_tickets ENABLE ROW LEVEL SECURITY;
 
 -- Políticas para CUSTOMERS
 CREATE POLICY "Users can read their own customer data"
@@ -332,16 +301,13 @@ GRANT USAGE ON SEQUENCE public.events_id_seq TO authenticated;
 GRANT USAGE ON SEQUENCE public.tickets_id_seq TO authenticated;
 GRANT USAGE ON SEQUENCE public.customers_id_seq TO authenticated;
 GRANT USAGE ON SEQUENCE public.orders_id_seq TO authenticated;
-GRANT USAGE ON SEQUENCE public.issued_tickets_id_seq TO authenticat
-GRANT USAGE ON SEQUENCE public.validated_tickets_id_seq TO authenticated;ed;
-GRANT USAGE ON SEQUENCE public.order_items_id_seq TO authenticated;
+GRANT USAGE ON SEQUENCE public.issued_tickets_id_seq TO authenticated;
 
 GRANT SELECT ON public.events TO authenticated, anon;
 GRANT SELECT ON public.tickets TO authenticated, anon;
 GRANT ALL ON public.customers TO authenticated;
 GRANT ALL ON public.orders TO authenticated;
 GRANT ALL ON public.issued_tickets TO authenticated;
-GRANT ALL ON public.order_items TO authenticated;
 
 -- =============================================
 -- PARTE 8: VERIFICAÇÃO
@@ -355,14 +321,14 @@ BEGIN
   SELECT COUNT(*) INTO table_count
   FROM information_schema.tables
   WHERE table_schema = 'public'
-    AND table_name IN ('events', 'tickets', 'customers', 'orders', 'issued_tickets', 'order_items', 'validated_tickets');
+    AND table_name IN ('events', 'tickets', 'customers', 'orders', 'issued_tickets');
   
   RAISE NOTICE 'Tabelas criadas: %', table_count;
   
-  IF table_count = 7 THEN
+  IF table_count = 5 THEN
     RAISE NOTICE '✅ Migração concluída com sucesso!';
   ELSE
-    RAISE WARNING '⚠️ Nem todas as tabelas foram criadas. Esperado: 7, Encontrado: %', table_count;
+    RAISE WARNING '⚠️ Nem todas as tabelas foram criadas. Esperado: 5, Encontrado: %', table_count;
   END IF;
 END $$;
 

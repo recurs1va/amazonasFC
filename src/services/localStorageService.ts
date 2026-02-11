@@ -186,16 +186,39 @@ export class LocalStorageService {
     // Criar pedido
     const orders = this.getOrders();
     const newOrderId = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    
+    // Gerar issued_tickets a partir dos itens do carrinho
+    const issuedTickets: any[] = [];
+    let ticketIndex = 0;
+    
+    items.forEach(item => {
+      for (let i = 0; i < item.quantity; i++) {
+        const ticketCode = this.generateTicketCode(newOrderId, ticketIndex);
+        issuedTickets.push({
+          order_id: newOrderId,
+          event_id: order.event_id,
+          ticket_id: item.ticket_id,
+          ticket_code: ticketCode,
+          ticket_name: item.ticket_name,
+          unit_price: item.unit_price,
+          customer_id: customer.id,
+          customer_name: customer.name,
+          validated_at: null
+        });
+        ticketIndex++;
+      }
+    });
+    
+    // Salvar issued_tickets
+    this.addIssuedTickets(issuedTickets);
+    
     const newOrder = {
       ...order,
       order_id: newOrderId,
       customer_id: customer.id,
       created_at: new Date().toISOString(),
       customers: customer,
-      order_items: items.map(item => ({
-        ...item,
-        order_id: newOrderId,
-      })),
+      issued_tickets: issuedTickets,
     };
 
     // Adicionar relacionamento com evento
@@ -207,6 +230,24 @@ export class LocalStorageService {
 
     this.saveOrders([...orders, newOrder]);
     return newOrder;
+  }
+  
+  /**
+   * Gera um código único para o ingresso
+   */
+  private generateTicketCode(orderId: string, index: number): string {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const indexPart = String(index + 1).padStart(2, '0');
+    
+    const basePart = `${random}${timestamp.slice(-4)}${indexPart}`;
+    
+    const checkDigit = basePart.split('').reduce((sum, char) => {
+      const code = char.charCodeAt(0);
+      return sum + (code >= 48 && code <= 57 ? parseInt(char) : code);
+    }, 0) % 36;
+    
+    return `TKT-${basePart}-${checkDigit.toString(36).toUpperCase()}`;
   }
 
   getOrdersByEvent(eventId: number): any[] {

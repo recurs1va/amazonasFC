@@ -171,15 +171,16 @@ export const AdminScreenFull: React.FC<AdminScreenFullProps> = ({
   let totalTicketsSold = 0;
   const ticketBreakdown: Record<string, { quantity: number; revenue: number }> = {};
 
+  // Usar issued_tickets ao invés de order_items (deprecated)
   filteredOrders.forEach(order => {
-    order.order_items?.forEach(item => {
-      if (reportFilterTicket === 'all' || item.ticket_name === reportFilterTicket) {
-        totalTicketsSold += item.quantity;
-        if (!ticketBreakdown[item.ticket_name]) {
-          ticketBreakdown[item.ticket_name] = { quantity: 0, revenue: 0 };
+    order.issued_tickets?.forEach(ticket => {
+      if (reportFilterTicket === 'all' || ticket.ticket_name === reportFilterTicket) {
+        totalTicketsSold += 1; // Cada issued_ticket representa 1 ingresso
+        if (!ticketBreakdown[ticket.ticket_name]) {
+          ticketBreakdown[ticket.ticket_name] = { quantity: 0, revenue: 0 };
         }
-        ticketBreakdown[item.ticket_name].quantity += item.quantity;
-        ticketBreakdown[item.ticket_name].revenue += item.quantity * item.unit_price;
+        ticketBreakdown[ticket.ticket_name].quantity += 1;
+        ticketBreakdown[ticket.ticket_name].revenue += ticket.unit_price;
       }
     });
   });
@@ -189,7 +190,7 @@ export const AdminScreenFull: React.FC<AdminScreenFullProps> = ({
     : Object.values(ticketBreakdown).reduce((sum, t) => sum + t.revenue, 0);
 
   const uniqueTicketTypes = [...new Set(
-    orders.flatMap(o => o.order_items?.map(i => i.ticket_name) || [])
+    orders.flatMap(o => o.issued_tickets?.map(i => i.ticket_name) || [])
   )];
 
   return (
@@ -456,7 +457,7 @@ export const AdminScreenFull: React.FC<AdminScreenFullProps> = ({
                               R$ {order.total.toFixed(2)}
                             </p>
                             <p className="text-xs text-gray-400">
-                              {order.order_items?.reduce((sum, i) => sum + i.quantity, 0)} ingresso(s)
+                              {order.issued_tickets?.length || 0} ingresso(s)
                             </p>
                           </div>
                         </div>

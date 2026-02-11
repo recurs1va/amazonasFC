@@ -269,6 +269,24 @@ Para problemas relacionados ao banco de dados:
 
 ---
 
-**Última atualização:** 02/02/2026  
-**Versão:** 1.0  
+**Última atualização:** 10/02/2026  
+**Versão:** 2.0 - Migração completa para issued_tickets  
 **Compatível com:** Supabase PostgreSQL 15+
+
+---
+
+## 🎯 Mudanças na Versão 2.0
+
+### ✅ Estrutura Moderna
+- **5 tabelas principais** (anteriormente 7)
+- Tabelas removidas: `order_items` e `validated_tickets` (deprecated)
+- Sistema 100% baseado em `issued_tickets`
+
+### 📊 Nova Arquitetura
+- **1 ingresso = 1 registro** em `issued_tickets`
+- Validação integrada via campo `validated_at`
+- Rastreamento individual completo
+- Relatórios mais precisos
+
+### 📚 Documentação
+Consulte [MIGRATION_NOTES.md](./MIGRATION_NOTES.md) para detalhes completos da migração.
